@@ -2,12 +2,14 @@
   "name": "tervete-awakens-ar-preview",
   "private": true,
   "version": "0.1.0",
-  "description": "Tērvete Awakens — Five Senses Trail: AR Experience Preview (pitch prototype)",
+  "description": "T\u0113rvete Awakens \u2014 Five Senses Trail: AR Experience Preview (pitch prototype)",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
+    "dev:https": "HTTPS=1 vite --host",
     "build": "tsc -p tsconfig.app.json && vite build",
     "preview": "vite preview --host",
+    "preview:https": "HTTPS=1 vite preview --host",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run"
@@ -26,6 +28,7 @@
     "@types/react": "^19.3.3",
     "@types/react-dom": "^19.3.0",
     "@types/three": "^0.187.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
     "@vitejs/plugin-react": "^6.3.0",
     "eslint": "^10.15.0",
     "eslint-plugin-react-hooks": "^7.1.1",

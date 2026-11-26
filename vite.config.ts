@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
@@ -23,11 +24,27 @@ function mindArThreeShim(): Plugin {
   };
 }
 
+/** Same redirect for Vite's dependency pre-bundler (dev server), which does not run app plugins. */
+const optimizerShim = {
+  name: 'mind-ar-three-shim',
+  resolveId(source: string, importer?: string) {
+    if (source === 'three' && importer && /[\\/]node_modules[\\/]mind-ar[\\/]/.test(importer)) {
+      return threeCompat;
+    }
+    return null;
+  },
+};
+
 export default defineConfig({
-  plugins: [mindArThreeShim(), react()],
+  // HTTPS=1 npm run dev:https → self-signed certificate, needed for the phone camera over the local network.
+  plugins: [mindArThreeShim(), react(), ...(process.env.HTTPS ? [basicSsl()] : [])],
+  optimizeDeps: {
+    rolldownOptions: { plugins: [optimizerShim] },
+  },
   build: {
     target: 'es2022',
-    chunkSizeWarningLimit: 900,
+    // three + react ≈ 0.9 MB. MindAR (≈1.3 MB) is its own chunk and only loads in AR mode.
+    chunkSizeWarningLimit: 1400,
   },
   test: {
     environment: 'jsdom',
