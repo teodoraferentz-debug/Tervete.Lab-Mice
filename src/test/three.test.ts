@@ -49,15 +49,20 @@ describe('zones on the map', () => {
     }
   });
 
-  it('uses the illustrated mascot, never primitives (a sprite, one mesh-free child)', () => {
+  it('stands the modelled mascots as 3D characters (named parts for the animation) and the others as a sprite', () => {
     for (const g of GUARDIANS) {
       const m = buildMascot(g);
       m.update(1, 0.5, true, 1);
+      const names = new Set<string>();
       let meshes = 0;
       m.group.traverse((o) => {
+        names.add(o.name);
         if ((o as { isMesh?: boolean }).isMesh) meshes++;
       });
-      expect(meshes).toBe(0);
+      if (['skats', 'deguntins', 'plaukstina'].includes(g.id)) {
+        expect(meshes).toBeGreaterThan(20);
+        for (const part of ['Head', 'Cap', 'Eye Left', 'Eye Right', 'Mouth', 'Arm Left', 'Arm Right', 'Foot Left', 'Foot Right', 'Body']) expect(names.has(part)).toBe(true);
+      } else expect(meshes).toBe(0); // illustration billboard until its character is modelled
     }
   });
 });

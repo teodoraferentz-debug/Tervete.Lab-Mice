@@ -1,7 +1,7 @@
 import { Box3, Group, SRGBColorSpace, Sprite, SpriteMaterial, TextureLoader, Vector3 } from 'three';
 import { getAsset, isReady } from '../content/assets';
 import type { Guardian } from '../content/guardians';
-import { loadModel } from './forest/loaders';
+import { buildMascot3D } from './forest/mascots3d';
 import { easeOutBack } from './util';
 
 export interface MascotRig {
@@ -39,9 +39,8 @@ export function buildMascot(guardian: Guardian, scale = 1): MascotRig {
       () => console.warn('[mascot] art not available'),
     );
   }
-  void loadModel(`mascots/${guardian.id}`).then((source) => {
-    if (!source) return;
-    const model = source.clone(true);
+  const model = buildMascot3D(guardian.id);
+  if (model) {
     const box = new Box3().setFromObject(model);
     const size = box.getSize(new Vector3());
     model.scale.setScalar(height / Math.max(0.001, size.y));
@@ -49,7 +48,7 @@ export function buildMascot(guardian: Guardian, scale = 1): MascotRig {
     model.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
     sprite.visible = false;
     group.add(model);
-  });
+  }
 
   return {
     group,

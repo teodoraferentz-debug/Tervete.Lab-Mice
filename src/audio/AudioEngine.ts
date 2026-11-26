@@ -4,10 +4,33 @@
  * Final recordings can replace it later (public/assets/audio/README.md).
  * Mute silences everything immediately. Nothing plays before a user gesture.
  */
+export type SoundKind = 'pick' | 'drop' | 'tick' | 'note' | 'chirp' | 'rustle' | 'whoosh' | 'chime' | 'knock' | 'pluck' | 'basket' | 'creak' | 'bell' | 'hop' | 'hover';
+
+interface Voice {
+  base: number;
+  type: OscillatorType;
+  formant: [number, number];
+  tempo: number;
+  /** How much of the pentatonic-ish scale the voice uses (smaller = flatter, calmer). */
+  range: number;
+  gain: number;
+}
+
+/** Placeholder voices, one per character (and a soft one for the narrator). */
+const VOICES: Record<string, Voice> = {
+  skats: { base: 330, type: 'triangle', formant: [1000, 2100], tempo: 1, range: 1, gain: 0.07 },
+  austina: { base: 440, type: 'sine', formant: [1200, 2600], tempo: 1.1, range: 0.8, gain: 0.08 },
+  odzina: { base: 370, type: 'triangle', formant: [800, 1700], tempo: 0.95, range: 1, gain: 0.07 },
+  deguntins: { base: 255, type: 'sawtooth', formant: [600, 1300], tempo: 1.05, range: 0.9, gain: 0.04 },
+  plaukstina: { base: 300, type: 'triangle', formant: [700, 1500], tempo: 0.9, range: 0.7, gain: 0.07 },
+  narrator: { base: 190, type: 'sine', formant: [500, 900], tempo: 1.15, range: 0.5, gain: 0.04 },
+};
+
 export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private birdTimer: ReturnType<typeof setTimeout> | null = null;
+  private ambTimer: ReturnType<typeof setTimeout> | null = null;
   private muted = false;
 
   get supported(): boolean {
@@ -29,6 +52,7 @@ export class AudioEngine {
     this.master = master;
     this.startWind(ctx, master);
     this.scheduleBird();
+    this.scheduleAmbience();
   }
 
   setMuted(muted: boolean): void {
@@ -62,7 +86,7 @@ export class AudioEngine {
   }
 
   /** Sounds of the things you touch in a scene (all generated, nothing to license). */
-  play(kind: 'pick' | 'drop' | 'tick' | 'note' | 'chirp' | 'rustle' | 'whoosh' | 'chime' | 'knock', index = 0): void {
+  play(kind: SoundKind, index = 0): void {
     switch (kind) {
       case 'chime':
         this.chime(index);
@@ -94,10 +118,88 @@ export class AudioEngine {
       case 'rustle':
         this.noise(0.7, 'highpass', 2200, 3600, 0.09);
         break;
+      case 'pluck':
+        this.noise(0.12, 'lowpass', 900, 500, 0.16);
+        this.blip('sine', 240, 110, 0.14, 0.2);
+        break;
+      case 'basket':
+        this.blip('sine', 150, 80, 0.16, 0.22);
+        this.noise(0.18, 'bandpass', 1800, 1200, 0.07);
+        break;
+      case 'creak':
+        this.blip('sawtooth', 150, 105, 0.38, 0.045);
+        break;
+      case 'bell':
+        this.blip('sine', 988, 988, 1.3, 0.1);
+        this.blip('sine', 1976, 1976, 0.7, 0.04);
+        break;
+      case 'hop':
+        this.blip('sine', 280, 640, 0.13, 0.13);
+        break;
+      case 'hover':
+        this.blip('sine', 1700, 1900, 0.03, 0.025);
+        break;
       case 'whoosh':
         this.noise(1.1, 'bandpass', 300, 1400, 0.12);
         break;
     }
+  }
+
+  /**
+   * A placeholder "voice" for a character: a babble of short pitched syllables shaped by the text (one to
+   * three per word, longer pauses at punctuation, a lift at a question mark). Each character has its own
+   * pitch and timbre; the same line always sounds the same. Real recordings replace this later.
+   * Returns the approximate length in seconds.
+   */
+  speak(voice: string, text: string): number {
+    const v = VOICES[voice] ?? VOICES.narrator!;
+    const words = text.split(/\s+/).filter(Boolean);
+    let h = 2166136261;
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619) >>> 0;
+    const scale = [0, 2, 4, 7, 9, 12, 14, 16];
+    let t = 0;
+    for (const word of words) {
+      const syll = 1 + (word.length > 4 ? 1 : 0) + (word.length > 8 ? 1 : 0);
+      for (let s = 0; s < syll && t < 8; s++) {
+        h = (Math.imul(h, 1664525) + 1013904223) >>> 0;
+        const step = scale[h % scale.length]! * v.range;
+        const last = s === syll - 1;
+        const lift = last && word.endsWith('?') ? 1.28 : last && /[.!]$/.test(word) ? 0.92 : 1;
+        this.syllable(v, v.base * 2 ** (step / 12) * lift, t, 0.07 + (h % 5) * 0.008, (h >>> 8) % 3);
+        t += 0.1 * v.tempo;
+      }
+      t += 0.045 * v.tempo + (/[,;:]$/.test(word) ? 0.14 : /[.!?…]$/.test(word) ? 0.3 : 0);
+    }
+    return t;
+  }
+
+  private syllable(v: Voice, f: number, at: number, dur: number, vowel: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || this.muted) return;
+    const t0 = ctx.currentTime + at;
+    const osc = ctx.createOscillator();
+    osc.type = v.type;
+    osc.frequency.setValueAtTime(f * 0.96, t0);
+    osc.frequency.linearRampToValueAtTime(f, t0 + dur * 0.4);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 6 + vowel;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = f * 0.012;
+    lfo.connect(lfoGain).connect(osc.frequency);
+    const formant = ctx.createBiquadFilter();
+    formant.type = 'bandpass';
+    formant.frequency.value = v.formant[0] + (v.formant[1] - v.formant[0]) * (vowel / 2);
+    formant.Q.value = 2.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(v.gain, t0 + 0.014);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(formant).connect(g).connect(master);
+    osc.start(t0);
+    lfo.start(t0);
+    osc.stop(t0 + dur + 0.02);
+    lfo.stop(t0 + dur + 0.02);
   }
 
   private blip(type: OscillatorType, f0: number, f1: number, dur: number, gain: number): void {
@@ -145,6 +247,8 @@ export class AudioEngine {
   dispose(): void {
     if (this.birdTimer) clearTimeout(this.birdTimer);
     this.birdTimer = null;
+    if (this.ambTimer) clearTimeout(this.ambTimer);
+    this.ambTimer = null;
     void this.ctx?.close();
     this.ctx = null;
     this.master = null;
@@ -176,6 +280,23 @@ export class AudioEngine {
     src.connect(filter).connect(gain).connect(out);
     src.start();
     lfo.start();
+  }
+
+  /** Now and then: a gust through the pines, or a woodpecker far away. */
+  private scheduleAmbience(): void {
+    this.ambTimer = setTimeout(
+      () => {
+        if (Math.random() < 0.28) this.woodpecker();
+        else this.noise(1.8 + Math.random(), 'bandpass', 700, 1500, 0.045);
+        this.scheduleAmbience();
+      },
+      7000 + Math.random() * 9000,
+    );
+  }
+
+  private woodpecker(): void {
+    const n = 6 + Math.floor(Math.random() * 5);
+    for (let i = 0; i < n; i++) setTimeout(() => this.blip('square', 1600, 700, 0.025, 0.035), i * 78);
   }
 
   private scheduleBird(): void {

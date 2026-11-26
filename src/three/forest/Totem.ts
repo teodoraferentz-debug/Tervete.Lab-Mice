@@ -5,6 +5,7 @@ import {
   DoubleSide,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   Object3D,
   PlaneGeometry,
@@ -13,9 +14,10 @@ import {
   Vector3,
   type Texture,
 } from 'three';
+import type { Interactable } from './interaction';
 import type { Guardian, Sense } from '../../content/guardians';
 import { mulberry32 } from '../util';
-import { loadModel } from './loaders';
+import { buildMascot3D } from './mascots3d';
 import { canvasTexture, signTexture } from './procedural';
 import { contactShadow, glowSprite, mesh, planks, shadowTexture } from './propKit';
 
@@ -120,17 +122,40 @@ function emblem(sense: Sense, color: string): Texture {
   });
 }
 
+/** Parts of a mascot model that move, found by the node names the model's author gave them. */
+interface Rig {
+  mouth: Object3D | null;
+  mouthOpen: Object3D | null;
+  smile: Object3D | null;
+  eyes: Object3D[];
+  arms: Object3D[];
+  head: Object3D | null;
+  caps: Object3D[];
+  body: Object3D | null;
+  feet: Object3D[];
+  base: Map<Object3D, { y: number; sx: number; sy: number; rz: number }>;
+}
+
 /**
- * The guardian's stand-in in the clearing: a carved wooden post with a painted sense emblem and its name
- * (provisional: the real mascots arrive as GLB models). When `models/mascots/<id>.glb` exists it replaces
- * the post, scaled to a child's height, so dropping the file in is all it takes.
+ * The guardian in the clearing. When `models/mascots/<id>.glb` exists it is the real mascot, scaled to a
+ * child's height, and it is alive: it blinks, sways, moves its mouth while its voice plays, waves and hops
+ * when you point at it and press. Otherwise (until its model arrives) a carved wooden post with the sense
+ * emblem stands there and glows while the guardian speaks.
  */
 export class Totem {
   readonly group = new Group();
+  /** Pointing at the guardian and pressing makes it say hello. */
+  readonly item: Interactable;
   private readonly post = new Group();
   private readonly halo: Sprite;
-  private model: Object3D | null = null;
+  private model: Group | null = null;
+  private rig: Rig | null = null;
   private level = 0;
+  private speakUntil = -1;
+  private reactAt = -10;
+  private reactNext = false;
+  /** Called when the guardian is poked: the scene plays its greeting. */
+  onPoke: (() => void) | null = null;
 
   constructor(
     private readonly guardian: Guardian,
@@ -155,47 +180,132 @@ export class Totem {
     );
     plaque.position.set(0, HEIGHT * 0.36, 0.205);
     this.post.add(plaque);
-    // A few moss patches and a root ring at the foot ground the post in the clearing
+    // A few moss patches at the foot ground the post in the clearing
     const rnd = mulberry32(guardian.name.length * 13);
     const moss = new MeshStandardMaterial({ color: '#4f7a31', roughness: 1 });
     for (let i = 0; i < 6; i++) {
       const a = rnd() * Math.PI * 2;
-      const m = mesh(new CylinderGeometry(0.05 + rnd() * 0.05, 0.07, 0.03, 7), moss, Math.sin(a) * 0.18, 0.015, Math.cos(a) * 0.18, false);
-      this.post.add(m);
+      this.post.add(mesh(new CylinderGeometry(0.05 + rnd() * 0.05, 0.07, 0.03, 7), moss, Math.sin(a) * 0.18, 0.015, Math.cos(a) * 0.18, false));
     }
     this.group.add(this.post, contactShadow(shadowTexture(), 0.9, 0.9, 0.55));
     this.halo = glowSprite(glow, guardian.themeColor, 0.9, 0);
     this.halo.position.set(0, HEIGHT * 0.72, 0.22);
     this.group.add(this.halo);
-    void this.tryLoadModel();
+
+    // An invisible body to point at: it exists from the start, so the pointer system always finds it.
+    const hit = new Mesh(new CylinderGeometry(0.4, 0.4, 1.4, 10), new MeshBasicMaterial({ visible: false }));
+    hit.position.y = 0.7;
+    this.group.add(hit);
+    this.item = {
+      id: 'guardian',
+      object: this.group,
+      kind: 'press',
+      label: `Say hello to ${guardian.name}`,
+      accent: guardian.themeColor,
+      onPress: () => this.poke(),
+    };
+    this.tryLoadModel();
   }
 
-  private async tryLoadModel(): Promise<void> {
-    const source = await loadModel(`mascots/${this.guardian.id}`);
-    if (!source) return;
-    const model = source.clone(true);
+  private poke(): void {
+    this.reactNext = true;
+    this.onPoke?.();
+  }
+
+  private tryLoadModel(): void {
+    const model = buildMascot3D(this.guardian.id);
+    if (!model) return; // no illustration modelled yet: the carved post stays
     const box = new Box3().setFromObject(model);
     const size = box.getSize(new Vector3());
-    const k = 1.15 / Math.max(0.001, size.y);
+    // Scale to a child's height; the cap and the held object are part of the model
+    const k = 1.4 / Math.max(0.001, size.y);
     model.scale.setScalar(k);
     box.setFromObject(model);
     model.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
     const holder = new Group();
     holder.add(model);
     this.model = holder;
+    this.rig = this.findRig(model);
     this.group.add(holder);
     this.post.visible = false;
-    this.halo.position.set(0, 0.8, 0.3);
+    this.halo.position.set(0, 0.85, 0.35);
   }
 
-  /** Breathes gently; glows while the guardian speaks. */
-  update(time: number, motion: number, speaking: boolean): void {
-    const goal = speaking ? 1 : 0;
+  private findRig(root: Object3D): Rig {
+    const rig: Rig = { mouth: null, mouthOpen: null, smile: null, eyes: [], arms: [], head: null, caps: [], body: null, feet: [], base: new Map() };
+    root.traverse((o) => {
+      const n = o.name.toLowerCase();
+      if (n === 'mouthopen') rig.mouthOpen = o;
+      else if (n === 'smile') rig.smile = o;
+      else if (n === 'mouth') rig.mouth = o;
+      else if (n.startsWith('eye')) rig.eyes.push(o);
+      else if (n.startsWith('arm')) rig.arms.push(o);
+      else if (n === 'head') rig.head = o;
+      else if (n.startsWith('cap')) rig.caps.push(o);
+      else if (n === 'body') rig.body = o;
+      else if (n.startsWith('foot')) rig.feet.push(o);
+      else return;
+      rig.base.set(o, { y: o.position.y, sx: o.scale.x, sy: o.scale.y, rz: o.rotation.z });
+    });
+    return rig;
+  }
+
+  /** The guardian's voice starts now and lasts about `seconds` (the mouth moves for that long). */
+  speak(time: number, seconds: number): void {
+    this.speakUntil = time + seconds;
+  }
+
+  /** Resets the pose for a fresh scene. */
+  reset(): void {
+    this.speakUntil = -1;
+    this.reactAt = -10;
+    this.reactNext = false;
+  }
+
+  update(time: number, motion: number): void {
+    if (this.reactNext) {
+      this.reactNext = false;
+      this.reactAt = time;
+    }
+    const talking = time < this.speakUntil;
+    const react = time - this.reactAt;
+    const goal = talking ? 1 : 0;
     this.level += (goal - this.level) * 0.12;
-    (this.halo.material as SpriteMaterial).opacity = 0.12 * (1 + Math.sin(time * 1.6) * 0.25 * motion) + this.level * 0.7;
+    (this.halo.material as SpriteMaterial).opacity = 0.1 * (1 + Math.sin(time * 1.6) * 0.25 * motion) + this.level * 0.55;
     this.halo.material.blending = AdditiveBlending;
     const bob = Math.sin(time * 1.3) * 0.006 * motion;
-    this.post.position.y = bob;
-    if (this.model) this.model.position.y = bob;
+    // A hop when poked: up and back down over 0.55 s
+    const hop = react >= 0 && react < 0.55 ? Math.sin((react / 0.55) * Math.PI) * 0.16 * motion : 0;
+    this.post.position.y = bob + hop * 0.5;
+    this.post.rotation.z = talking && !this.model ? Math.sin(time * 9) * 0.015 * motion : 0;
+    if (this.model) this.model.position.y = bob + hop;
+
+    const rig = this.rig;
+    if (!rig) return;
+    const at = (o: Object3D) => rig.base.get(o)!;
+    // Mouth: a smile at rest; while the voice plays it opens and closes in time with the syllables
+    if (rig.mouthOpen && rig.smile) {
+      const open = talking && motion ? 0.15 + Math.abs(Math.sin(time * 13 + Math.sin(time * 4.3))) * 0.85 : 0.001;
+      rig.mouthOpen.scale.y = Math.max(0.001, open);
+      rig.smile.visible = open < 0.18;
+      rig.mouthOpen.visible = open >= 0.18;
+    }
+    // Blink: eyes squeeze shut for a moment every few seconds
+    const phase = (time * 0.27 + this.guardian.name.length * 0.3) % 1;
+    const blink = motion && phase > 0.965 ? 0.12 : 1;
+    for (const e of rig.eyes) e.scale.y = at(e).sy * blink;
+    // Arms sway; the right one waves after a poke
+    rig.arms.forEach((arm, i) => {
+      const b = at(arm);
+      const sway = Math.sin(time * 1.5 + i * 2) * 0.05 * motion;
+      const wave = react >= 0 && react < 1.4 && i === 1 ? Math.sin(react * 14) * 0.35 + 0.9 : 0;
+      arm.rotation.z = b.rz + sway + (i === 1 ? wave : 0) * motion;
+    });
+    // Head and cap nod along with the voice
+    const nod = talking && motion ? Math.sin(time * 9) * 0.035 : Math.sin(time * 0.9) * 0.008 * motion;
+    for (const o of [rig.head, ...rig.caps]) if (o) o.position.y = at(o).y + nod;
+    if (rig.body) rig.body.scale.y = at(rig.body).sy * (1 + (hop > 0.01 ? 0.02 : Math.sin(time * 1.3) * 0.006 * motion));
+    // Feet stay planted while the body hops
+    for (const f of rig.feet) f.position.y = at(f).y;
   }
 }

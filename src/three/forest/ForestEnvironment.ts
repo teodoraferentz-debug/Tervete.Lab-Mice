@@ -1,6 +1,7 @@
 import {
   BackSide,
   Box3,
+  DoubleSide,
   CircleGeometry,
   Color,
   ConeGeometry,
@@ -10,6 +11,7 @@ import {
   Group,
   HemisphereLight,
   InstancedMesh,
+  Euler,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -23,6 +25,11 @@ import {
   type Scene,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { Interactable } from './interaction';
+import { SPOTS as MUSHROOM_SPOTS } from './mushrooms';
+import { coneGeometry } from './propKit';
+import { leafGeometry, leafTexture, type LeafKind } from './procedural';
+import type { SoundKind } from './types';
 import type { QualityTier } from '../quality';
 import { mulberry32 } from '../util';
 import { cloneModel, loadMap, loadModel, loadSky } from './loaders';
@@ -44,12 +51,22 @@ interface Scatter {
 }
 
 const SCATTER: Scatter[] = [
-  { model: 'pine_sapling_small', count: 9, rMin: 3.4, rMax: 8, size: [2.2, 3.6], ahead: 1.25 },
-  { model: 'fir_sapling', count: 7, rMin: 3.8, rMax: 9, size: [2, 3.2], ahead: 1.4 },
-  { model: 'fern_02', count: 11, rMin: 2.6, rMax: 6, size: [0.55, 0.9] },
-  { model: 'rock_moss_set_01', count: 5, rMin: 3, rMax: 7, size: [0.35, 0.85] },
-  { model: 'tree_stump_01', count: 3, rMin: 2.8, rMax: 5.2, size: [0.45, 0.6] },
+  { model: 'pine_sapling_small', count: 4, rMin: 5.2, rMax: 9, size: [2.4, 3.6], ahead: 1.2 },
+  { model: 'fir_sapling', count: 3, rMin: 5.6, rMax: 9.5, size: [2.2, 3.2], ahead: 1.3 },
+  { model: 'fern_02', count: 17, rMin: 2.2, rMax: 6.8, size: [0.5, 0.85] },
+  { model: 'rock_moss_set_01', count: 5, rMin: 3, rMax: 7, size: [0.35, 0.8] },
+  { model: 'tree_stump_01', count: 3, rMin: 2.8, rMax: 5.4, size: [0.45, 0.6] },
 ];
+
+/** Where nothing may grow: the table and props, the guardian, the basket, the gateway posts and the mushrooms. */
+function blocked(x: number, z: number): boolean {
+  if (Math.abs(x) < 3 && z > 0.1 && z < 2.7) return true; // between the player and the screen camera
+  if (Math.abs(x) < 1.35 && z < -0.55 && z > -2.2) return true;
+  if (Math.hypot(x - 1.45, z + 1.75) < 1.2) return true;
+  if (Math.hypot(x + 1.2, z + 0.95) < 0.8) return true;
+  if (Math.hypot(Math.abs(x) - 1.55, z + 2.1) < 0.5) return true;
+  return MUSHROOM_SPOTS.some(([, mx, mz]) => Math.hypot(x - mx, z - mz) < 0.55);
+}
 
 /**
  * The Baltic pine clearing every scene stands in: a photographed misty-pine sky dome, a PBR forest floor,
@@ -67,10 +84,17 @@ export class ForestEnvironment {
   private readonly trunks: InstancedMesh;
   private readonly crowns: InstancedMesh;
   private readonly scatter = new Group();
+  private readonly litter = new Group();
   private skyTexture: Texture | null = null;
   private populated = false;
   private disposed = false;
   private scatterMeshes: Array<{ group: Object3D; rank: number }> = [];
+  /** Plants, stumps and rocks you can poke (they sway or knock). Grows as the models load. */
+  readonly items: Interactable[] = [];
+  private readonly wobbles: Array<{ holder: Object3D; amp: number; phase: number; kind: string }> = [];
+  sound: (kind: SoundKind, index?: number) => void = () => undefined;
+  /** Called when the list of pointable things has grown. */
+  onItems: (() => void) | null = null;
 
   constructor(private readonly seed = 2024) {
     this.sky = new Mesh(
@@ -83,11 +107,11 @@ export class ForestEnvironment {
     this.group.add(this.sky);
 
     const ground = new MeshStandardMaterial({
-      map: loadMap('ground-diff', { srgb: true, repeatX: 22 }),
-      normalMap: loadMap('ground-nor', { repeatX: 22 }),
-      roughnessMap: loadMap('ground-rough', { repeatX: 22 }),
+      map: loadMap('ground-diff', { srgb: true, repeatX: 58 }),
+      normalMap: loadMap('ground-nor', { repeatX: 58 }),
+      roughnessMap: loadMap('ground-rough', { repeatX: 58 }),
       roughness: 1,
-      color: '#9db286',
+      color: '#aab282',
       envMapIntensity: 0.35,
     });
     this.ground = new Mesh(new CircleGeometry(GROUND_RADIUS, 56), ground);
@@ -108,6 +132,8 @@ export class ForestEnvironment {
     this.layoutTrunks();
     this.group.add(this.trunks, this.crowns);
 
+    this.buildLitter();
+
     this.sun.position.set(-4, 9, 5);
     this.sun.target.position.set(0, 0, -1.2);
     this.sun.shadow.mapSize.set(1536, 1536);
@@ -120,7 +146,7 @@ export class ForestEnvironment {
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.015;
     this.lights.add(this.hemi, this.sun, this.sun.target);
-    this.group.add(this.lights, this.scatter);
+    this.group.add(this.lights, this.scatter, this.litter);
   }
 
   /** Fog and the skybox are scene-wide, so the Stage asks the environment to apply them. */
@@ -135,6 +161,7 @@ export class ForestEnvironment {
     this.populated = true;
     const [sky] = await Promise.all([loadSky().catch(() => null), this.populate()]);
     if (this.disposed) return null;
+    this.onItems?.();
     if (sky) {
       this.skyTexture = sky;
       const mat = this.sky.material as MeshBasicMaterial;
@@ -143,6 +170,69 @@ export class ForestEnvironment {
       mat.needsUpdate = true;
     }
     return sky;
+  }
+
+  /** Swaying of the plants you have poked (they settle back by themselves). */
+  update(dt: number, time: number, motion: number): void {
+    const decay = Math.exp(-dt * 2.4);
+    for (const w of this.wobbles) {
+      if (w.amp < 0.0005) continue;
+      w.amp *= decay;
+      w.holder.rotation.z = Math.sin(time * 10 + w.phase) * w.amp * motion;
+      w.holder.rotation.x = Math.cos(time * 8.3 + w.phase) * w.amp * 0.6 * motion;
+    }
+  }
+
+  /** Fallen leaves, cones and twigs on the forest floor (a few instanced meshes: cheap for a headset). */
+  private buildLitter(): void {
+    const r = mulberry32(this.seed + 9);
+    const spot = (): Vector3 => {
+      for (;;) {
+        const a = r() * Math.PI * 2;
+        const d = 0.8 + Math.sqrt(r()) * 7;
+        const p = new Vector3(Math.sin(a) * d, 0, -Math.cos(a) * d);
+        if (Math.abs(p.x) < 0.95 && p.z < -0.75 && p.z > -1.6) continue; // under the table
+        return p;
+      }
+    };
+    const autumn = ['#b9722a', '#9c4a22', '#d3a23a', '#7a5a2a', '#a8321f', '#c08a3a', '#8a6a32'].map((c) => new Color(c));
+    const m = new Matrix4();
+    const q = new Quaternion();
+    const e = new Quaternion();
+    const up = new Vector3(0, 1, 0);
+    (['oak', 'birch', 'maple', 'aspen'] as LeafKind[]).forEach((kind, ki) => {
+      const count = 46;
+      const mesh = new InstancedMesh(
+        leafGeometry(kind, 0.085),
+        new MeshStandardMaterial({ map: leafTexture('#d9ccaa', '#efe6cc', '#80704c'), roughness: 0.92, side: DoubleSide }),
+        count,
+      );
+      for (let i = 0; i < count; i++) {
+        const p = spot();
+        q.setFromAxisAngle(up, r() * 6.28);
+        e.setFromEuler(new Euler((r() - 0.5) * 0.25, 0, (r() - 0.5) * 0.25));
+        m.compose(p.setY(0.004 + r() * 0.012 + ki * 0.001), q.multiply(e), new Vector3(1, 1, 1).multiplyScalar(0.8 + r() * 0.7));
+        mesh.setMatrixAt(i, m);
+        mesh.setColorAt(i, autumn[Math.floor(r() * autumn.length)]!);
+      }
+      mesh.receiveShadow = true;
+      this.litter.add(mesh);
+    });
+    const cones = new InstancedMesh(coneGeometry(7), new MeshStandardMaterial({ color: '#6d4a2c', roughness: 0.95 }), 16);
+    const twigs = new InstancedMesh(new CylinderGeometry(0.004, 0.007, 1, 5).rotateZ(Math.PI / 2), new MeshStandardMaterial({ color: '#5d4630', roughness: 1 }), 34);
+    for (let i = 0; i < 16; i++) {
+      const p = spot();
+      q.setFromEuler(new Euler(0, r() * 6.28, Math.PI / 2));
+      m.compose(p.setY(0.025), q, new Vector3(1, 1, 1).multiplyScalar(1 + r() * 0.5));
+      cones.setMatrixAt(i, m);
+    }
+    for (let i = 0; i < 34; i++) {
+      const p = spot();
+      q.setFromAxisAngle(up, r() * 6.28);
+      m.compose(p.setY(0.008), q, new Vector3(0.25 + r() * 0.4, 1 + r() * 0.5, 1));
+      twigs.setMatrixAt(i, m);
+    }
+    this.litter.add(cones, twigs);
   }
 
   setQuality(tier: QualityTier): void {
@@ -154,7 +244,7 @@ export class ForestEnvironment {
 
   /** The sky, floor and trees show or hide; the lights stay (AR still lights the miniature). */
   setDressing(on: boolean): void {
-    for (const o of [this.sky, this.ground, this.trunks, this.crowns, this.scatter]) o.visible = on;
+    for (const o of [this.sky, this.ground, this.trunks, this.crowns, this.scatter, this.litter]) o.visible = on;
   }
 
   setShadows(on: boolean): void {
@@ -215,7 +305,7 @@ export class ForestEnvironment {
         const x = Math.sin(angle) * r;
         const z = -Math.cos(angle) * r;
         // Keep the table, its props and the player's own spot free.
-        if (Math.hypot(x, z + 1.15) < 1.7 || Math.hypot(x, z) < 1.1) continue;
+        if (blocked(x, z) || Math.hypot(x, z) < 1.1) continue;
         const pick = variants[Math.floor(rnd() * variants.length)]!;
         const inst = cloneModel(pick);
         // Child variants keep their position inside the source file: recentre them on the ground.
@@ -232,10 +322,27 @@ export class ForestEnvironment {
         holder.quaternion.setFromAxisAngle(up, rnd() * Math.PI * 2);
         holder.traverse((o) => {
           const mesh = o as Mesh;
-          if (mesh.isMesh) mesh.userData.shared = true;
+          if (!mesh.isMesh) return;
+          mesh.userData.shared = true;
+          // Own materials, so pointing at one plant does not light up all of them
+          mesh.material = Array.isArray(mesh.material) ? mesh.material.map((m) => m.clone()) : mesh.material.clone();
         });
         this.scatter.add(holder);
         this.scatterMeshes.push({ group: holder, rank: (i + 1) / spec.count });
+        const kind = spec.model.includes('fern') ? 'fern' : spec.model.includes('sapling') ? 'pine' : spec.model.includes('rock') ? 'rock' : 'stump';
+        const wob = { holder, amp: 0, phase: rnd() * 6, kind };
+        this.wobbles.push(wob);
+        this.items.push({
+          id: `env-${this.items.length}`,
+          object: holder,
+          kind: 'press',
+          label: { fern: 'Fern', pine: 'Young pine', rock: 'Mossy rock', stump: 'Old stump' }[kind],
+          accent: '#cfe6b0',
+          onPress: () => {
+            wob.amp = kind === 'rock' || kind === 'stump' ? 0.012 : 0.13;
+            this.sound(kind === 'rock' || kind === 'stump' ? 'knock' : 'rustle');
+          },
+        });
       }
     }
   }

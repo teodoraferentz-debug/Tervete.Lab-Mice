@@ -76,7 +76,7 @@ describe('InteractionManager', () => {
 });
 
 describe('ForestScene (the five 3D scenes)', () => {
-  const make = (): SceneCtx => ({ glow: new Texture(), beam: new Texture(), interaction: new InteractionManager(), sound: vi.fn() });
+  const make = (): SceneCtx => ({ glow: new Texture(), beam: new Texture(), interaction: new InteractionManager(), sound: vi.fn(), speak: vi.fn(() => 1), envItems: () => [] });
 
   for (const g of GUARDIANS) {
     it(`${g.name}: builds, registers pointable items, plays through its cues and resets`, () => {
@@ -104,6 +104,56 @@ describe('ForestScene (the five 3D scenes)', () => {
     expect(leaf.enabled?.()).toBe(false);
     for (let t = 5; t < 10; t += 0.25) scene.update(t, cues, t, 1, []);
     expect(leaf.enabled?.()).toBe(true);
+  });
+
+  it('a character speaks when its line of text appears: mascot lines in its own voice, narrator lines softly', () => {
+    const g = GUARDIANS[0]!;
+    const ctx = make();
+    const scene = new ForestScene(g, ctx);
+    const cues = cueTimes(g.pitchBeats);
+    scene.start();
+    scene.update(0, cues, 0, 1, []);
+    expect(ctx.speak).toHaveBeenCalledWith('skats', g.pitchBeats[0]!.text);
+    scene.update(0.5, cues, 0.5, 1, []); // same line: not repeated
+    expect(ctx.speak).toHaveBeenCalledTimes(1);
+    scene.update(12, cues, 12, 1, []); // a narrator line
+    expect(ctx.speak).toHaveBeenLastCalledWith('narrator', expect.any(String));
+    scene.start(); // replay: the first line speaks again
+    scene.update(0, cues, 0, 1, []);
+    expect(ctx.speak).toHaveBeenCalledTimes(3);
+  });
+
+  it('mushrooms can be picked and collected in the basket, and a replay puts them back', () => {
+    const g = GUARDIANS[2]!;
+    const ctx = make();
+    const scene = new ForestScene(g, ctx);
+    scene.start();
+    const items = [...ctx.interaction['tracked' as never] as unknown as Array<{ item: Interactable }>].map((t) => t.item);
+    const mushrooms = items.filter((i) => i.id.startsWith('mushroom-'));
+    const basket = items.find((i) => i.id === 'basket')!;
+    expect(mushrooms.length).toBeGreaterThanOrEqual(10);
+    expect(basket.label).toBe('Basket: 0 mushrooms');
+    mushrooms[0]!.onGrab?.();
+    expect(mushrooms[0]!.onRelease!(new Vector3(-1.2, 0.3, -0.95))).toBe(true);
+    expect(basket.label).toBe('Basket: 1 mushroom');
+    expect(mushrooms[0]!.enabled?.()).toBe(false); // it is in the basket now
+    mushrooms[1]!.onGrab?.();
+    mushrooms[1]!.onRelease!(new Vector3(-2, 0.2, -2.8)); // set down elsewhere: not collected
+    expect(basket.label).toBe('Basket: 1 mushroom');
+    scene.start();
+    expect(basket.label).toBe('Basket: 0 mushrooms');
+    expect(mushrooms[0]!.enabled?.()).toBe(true);
+  });
+
+  it('pointing at the guardian and pressing makes it say hello', () => {
+    const g = GUARDIANS[1]!;
+    const ctx = make();
+    const scene = new ForestScene(g, ctx);
+    scene.start();
+    const items = [...ctx.interaction['tracked' as never] as unknown as Array<{ item: Interactable }>].map((t) => t.item);
+    const guardian = items.find((i) => i.id === 'guardian')!;
+    guardian.onPress?.({} as never, 0);
+    expect(ctx.speak).toHaveBeenCalledWith(g.id, expect.stringContaining('Hello'));
   });
 
   it('every item is a press, grab or drag with a hover label', () => {

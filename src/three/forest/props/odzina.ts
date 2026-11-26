@@ -38,8 +38,9 @@ export class OdzinaProps extends BaseProps {
 
   constructor(ctx: SceneCtx) {
     super(ctx);
-    this.gateway = new Gateway(ctx.glow, 'RŪĶĪŠU MEŽS', 'Odziņa · Taste', ORANGE);
-    this.group.add(this.gateway.group, buildTable(shadowTexture()));
+    this.gateway = new Gateway(ctx, 'RŪĶĪŠU MEŽS', 'Odziņa · Taste', ORANGE);
+    this.addGateway(this.gateway);
+    this.group.add(buildTable(shadowTexture()));
 
     // pegs and string
     const centre = onTable(0, -0.12, 0);

@@ -48,8 +48,8 @@ export class DeguntinsProps extends BaseProps {
 
   constructor(ctx: SceneCtx) {
     super(ctx);
-    this.gateway = new Gateway(ctx.glow, 'GREEN CLASSROOM', 'Deguntiņš · Smell', LAVENDER);
-    this.group.add(this.gateway.group);
+    this.gateway = new Gateway(ctx, 'GREEN CLASSROOM', 'Deguntiņš · Smell', LAVENDER);
+    this.addGateway(this.gateway);
 
     // stand: an A-frame of two posts and a cross-beam with an axle
     const wood = planks('#cdae8a', 0.3, 1.4);

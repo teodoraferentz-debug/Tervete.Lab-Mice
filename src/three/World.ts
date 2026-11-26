@@ -123,6 +123,8 @@ export class World {
 
   /** Called once when a guardian's memorable moment starts. */
   onMoment: ((id: GuardianId | 'finale') => void) | null = null;
+  /** A character starts a line; the app plays its placeholder voice and says how long it lasts. */
+  onSpeak: ((voice: string, text: string) => number) | null = null;
   /** Sounds the interactive scenes ask for (the app plays them). */
   onSound: ((kind: SoundKind, index?: number) => void) | null = null;
   /** The clearing was shown or hidden (the stage sets fog and background to match). */
@@ -260,7 +262,20 @@ export class World {
     this.tree.layout(this.finaleCenter);
     this.diorama.add(this.tree.group);
     this.root.add(this.diorama);
-    this.sceneCtx = { glow, beam, interaction: this.interaction, sound: (kind, index) => this.onSound?.(kind, index) };
+    this.sceneCtx = {
+      glow,
+      beam,
+      interaction: this.interaction,
+      sound: (kind, index) => this.onSound?.(kind, index),
+      speak: (voice, text) => this.onSpeak?.(voice, text) ?? 0,
+      envItems: () => this.forest.items,
+    };
+    this.forest.sound = (kind, index) => this.onSound?.(kind, index);
+    this.forest.onItems = () => this.activeScene?.refreshItems();
+    // Hovering makes a tiny tick, so pointing at things is audible too (headset: no cursor to see)
+    this.interaction.onEvent = (e) => {
+      if (e.kind === 'hover') this.onSound?.('hover');
+    };
     this.forestRoot.add(this.forest.group);
     this.forestRoot.visible = false;
     this.root.add(this.forestRoot);
@@ -467,6 +482,7 @@ export class World {
 
     this.zones.forEach((z) => z.update(dt, time, motion));
     this.animateTrees(dt, motion);
+    if (this.forestShown || this.mode === 'attraction') this.forest.update(dt, time, motion);
 
     const playing = this.playing;
     if (!playing) return;

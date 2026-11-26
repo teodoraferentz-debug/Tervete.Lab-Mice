@@ -67,6 +67,7 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
   const onMoment = useCallback((id: (typeof GUARDIAN_IDS)[number] | 'finale') => audio.chime(id === 'finale' ? 5 : GUARDIAN_IDS.indexOf(id)), [audio]);
 
   const onSound = useCallback<NonNullable<StageOptions['onSound']>>((kind, index) => audio.play(kind, index), [audio]);
+  const onSpeak = useCallback<NonNullable<StageOptions['onSpeak']>>((voice, text) => audio.speak(voice, text), [audio]);
 
   // Entering a headset needs the browser's permission prompt, so it starts straight from the button press.
   const enterVr = useCallback(async () => {
@@ -97,6 +98,7 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
       onMoment={onMoment}
       onVrEnd={controller.vrEnded}
       onSound={onSound}
+      onSpeak={onSpeak}
       arLayerRef={arLayerRef}
       onStage={setStage}
       cameraVisible={cameraVisible}

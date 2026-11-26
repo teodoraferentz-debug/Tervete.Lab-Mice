@@ -3,6 +3,7 @@ import type { CueKind } from '../../../content/guardians';
 import { easeOutBack } from '../../util';
 import type { Interactable } from '../interaction';
 import { TABLE } from '../propKit';
+import type { Gateway } from './dressing';
 import type { Cues, PropSet, SceneCtx } from '../types';
 
 interface Appear {
@@ -31,6 +32,12 @@ export abstract class BaseProps implements PropSet {
     obj.scale.setScalar(0.0001);
     obj.visible = false;
     this.appears.push({ obj, after, delay, baseScale, progress: 0 });
+  }
+
+  /** The scene's gateway (posts, sign, lanterns) and what can be poked on it. */
+  protected addGateway(g: Gateway): void {
+    this.group.add(g.group);
+    for (const item of g.items) this.items.push(item);
   }
 
   protected isShown(obj: Object3D): boolean {

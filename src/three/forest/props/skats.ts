@@ -73,8 +73,8 @@ export class SkatsProps extends BaseProps {
     super(ctx);
     const shadow = shadowTexture();
     this.group.add(buildTable(shadow));
-    this.gateway = new Gateway(ctx.glow, 'IRŠU DĀRZS', 'Skats · Sight', '#e2aa18');
-    this.group.add(this.gateway.group);
+    this.gateway = new Gateway(ctx, 'IRŠU DĀRZS', 'Skats · Sight', '#e2aa18');
+    this.addGateway(this.gateway);
 
     // ── dough board with the ornament ──────────────────────────────────────────
     this.board.position.copy(onTable(-0.42, 0.04));

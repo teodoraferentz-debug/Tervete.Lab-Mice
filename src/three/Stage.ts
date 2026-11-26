@@ -42,6 +42,8 @@ export interface StageOptions {
   onVrEnd?: () => void;
   /** An interaction made a sound (a bar struck, a leaf picked up). The app plays it. */
   onSound?: (kind: SoundKind, index?: number) => void;
+  /** A character starts a line; returns how long the placeholder voice lasts. */
+  onSpeak?: (voice: string, text: string) => number;
 }
 
 type FrameListener = () => void;
@@ -102,6 +104,7 @@ export class Stage implements StageApi {
     this.internalScene.add(this.world.root);
     this.world.onMoment = (id) => opts.onMoment?.(id);
     this.world.onSound = (kind, index) => opts.onSound?.(kind, index);
+    this.world.onSpeak = (voice, text) => opts.onSpeak?.(voice, text) ?? 0;
     this.world.onForest = (shown) => this.onForest(shown);
     this.world.interaction.onHaptic = (id, strength, ms) => this.vr?.haptic(id, strength, ms);
 

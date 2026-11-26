@@ -50,8 +50,8 @@ export class PlaukstinaProps extends BaseProps {
 
   constructor(ctx: SceneCtx) {
     super(ctx);
-    this.gateway = new Gateway(ctx.glow, 'VECO PRIEŽU PARKS', 'Plaukstiņa · Touch', WOOD);
-    this.group.add(this.gateway.group);
+    this.gateway = new Gateway(ctx, 'VECO PRIEŽU PARKS', 'Plaukstiņa · Touch', WOOD);
+    this.addGateway(this.gateway);
 
     // panel: a board on two posts, tilted back a little
     this.panel.position.copy(PANEL);

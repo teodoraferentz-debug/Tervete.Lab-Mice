@@ -263,3 +263,21 @@ What each scene lets you do (all drawn from the brief's physical activities, not
 | Plaukstiņa | open the five hatches (bark, cones, moss, sand, wood); a hand-print blooms; the sensory trail appears |
 
 In AR the same scene stands as a miniature on the printed map (look only; pointing is for Magic Mode and VR).
+
+### Characters, voices and the forest floor
+
+- **Mascots** (`mascots3d.ts`, `Totem.ts`): 3D characters with named parts (Head, Cap, Eye Left/Right, Mouth,
+  Arm Left/Right, Foot Left/Right). They blink, sway, open and close the mouth while their voice plays, and wave
+  and hop when you point at them and press (they say hello).
+- **Voices** (`AudioEngine.speak`): until real recordings arrive, every line of text is voiced as a babble of short
+  pitched syllables shaped by the text (one to three per word, pauses at punctuation, a lift at a question mark).
+  Each guardian has its own pitch and timbre; the narrator is soft. The same line always sounds the same. To
+  replace one with a recording, play the file from `AudioEngine.speak` (the text and the voice id are passed in).
+- **Sounds**: pick, drop, tap, wooden notes, bird, leaves, wind, knock, plucking a mushroom, basket, lantern bell,
+  sign creak, a hop, a tick when something is hovered, and an ambience of wind gusts and a distant woodpecker.
+- **Mushrooms** (`mushrooms.ts`): fly agaric, porcini, chanterelle and birch bolete on the forest floor of every
+  scene. Grab one to pick it (it leaves a hole), let go over the wicker basket to collect it. The captions say
+  "look, never taste" (and "poisonous" for the fly agaric), in line with the Taste scene's safety note. This is an
+  addition for VR play, not one of the park's activities from the brief.
+- **Everything is pokeable**: lanterns (bell), trail sign (creak), ferns and young pines (rustle), stumps and rocks
+  (knock), the guardian, the basket, every prop.
