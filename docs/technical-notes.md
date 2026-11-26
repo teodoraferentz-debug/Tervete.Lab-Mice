@@ -128,6 +128,27 @@ direcția să fie demonstrabilă acum. Nu sunt arta finală. Înlocuire fără m
 în `public/assets/` și o înregistrezi `ready` în `content/assets.ts` sub aceeași cheie (`loadArt` o
 preferă). Mascotele celorlalți patru gardieni folosesc deocamdată mascota principală (băiatul-detectiv).
 
+## VR (WebXR, Quest)
+
+`src/vr/` + `Stage.enterVr()`. Același cod, o sesiune `immersive-vr` în locul adaptorului AR.
+
+- **Pornire:** `Enter VR` apare dacă `navigator.xr.isSessionSupported('immersive-vr')` (HTTPS necesar). Orice
+  eșec cade în Magic Mode cu mesaj. Sfârșitul sesiunii (headset scos, meniul Quest, Exit VR) readuce
+  aplicația pe ecran, cu progresul păstrat. Starea are modul `vr` (`startVr` / `vrEnded`).
+- **Interfața din headset** (`VrRig`): HTML-ul paginii nu se vede în headset, deci subtitrările, mesajul
+  „Presenter", nota de siguranță, etichetele zonelor și meniul sunt desenate în 3D (`CanvasPanel`). Raza
+  controllerului (Raycaster) alege zone și butoane. Nu mișcă camera niciodată (ar da rău de mișcare).
+- **Machetă și teatru:** harta e o machetă de 2,4 m pe un piedestal, centrată pe nucleul parcului. Scenele
+  sunt un teatru de ≈2,4 × 1,35 m; privitorul stă mai aproape decât în versiunea pe ecran, ca scena să umple
+  câmpul vizual larg și straturile să se separe stereoscopic. Backdrop-ul înconjoară privitorul.
+- **Ancorare:** runtime-urile pun originea spațiului „local" fie la cap, fie la podea, așa că tot conținutul
+  se ancorează la poziția și direcția capului, citite după câteva cadre.
+- **Quest 1 (Snapdragon 835, 2019):** calitate `low` forțată, rezoluție 0,8×, foveation maxim, build `es2020`
+  (browserul Quest 1 nu se mai actualizează). Fără WebXR AR/mod mixt pe Quest 1.
+- **Testat:** pe un Quest 2 **emulat** (IWER, Meta) în Chromium: sesiune, buclă de randare, ancorare, raza
+  și trigger pe o zonă, butonul A, încheierea sesiunii. **Netestat pe un headset real**: fluiditate pe
+  Quest 1, confort, lizibilitatea textului, versiunea reală de browser.
+
 ## Harta (poartă și progres)
 
 Interimar, harta este **posterul oficial al parcului** (LVM, 2577 × 1851 px, aproape A3), descărcat de pe

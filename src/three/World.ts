@@ -41,6 +41,7 @@ import { SensesTree } from './SensesTree';
 import { loadTerrain, Terrain } from './terrain';
 import { beamTexture, glowTexture, MAP_D, MAP_W, placeholderMapTexture } from './textures';
 import { mulberry32 } from './util';
+import { coreCenter, tablePoint, VR_STAGE_POSITION, VR_STAGE_SCALE, VR_MAP_SCALE } from '../vr/layout';
 import { artKeysOf, compositionFor } from './story/compositions';
 import { preloadArt } from './story/art';
 import { StoryScene } from './story/StoryScene';
@@ -103,6 +104,10 @@ export class World {
   private playing: { guardian: Guardian | null; data: Playing } | null = null;
   private shadowsWanted = false;
   private external = false;
+  private vr = false;
+  /** Where the headset's player stands and which way they face when the session starts. */
+  private readonly vrOrigin = new Vector3();
+  private vrYaw = 0;
   /** How many trees were actually placed (placement can reject candidates). */
   private treeCap = MAX_TREES;
 
@@ -252,6 +257,49 @@ export class World {
     this.sun.castShadow = !external && this.shadowsWanted;
   }
 
+  /** In a headset the map is a tabletop miniature and scenes are a theatre in front of the player. */
+  setVr(on: boolean): void {
+    this.vr = on;
+    this.shadowBlob.visible = !on && !this.external;
+    this.sun.castShadow = !on && !this.external && this.shadowsWanted;
+    if (!on) this.activeStory?.placeScreen();
+    this.applyVrPlacement();
+  }
+
+  /**
+   * Runtimes disagree on where the "local" origin is (at the head, or on the floor), so VR content is
+   * anchored to the head's actual position and heading, read on the first frame of the session.
+   */
+  setVrAnchor(origin: Vector3, yaw: number): void {
+    this.vrOrigin.copy(origin);
+    this.vrYaw = yaw;
+    this.applyVrPlacement();
+  }
+
+  /** Centre of the five zones on the map (also used by the headset UI to place labels). */
+  core(): Vector3 {
+    return coreCenter([...this.zones.values()].map((z) => z.worldPosition));
+  }
+
+  private vrPoint(local: Vector3): Vector3 {
+    return local.clone().applyAxisAngle(new Vector3(0, 1, 0), this.vrYaw).add(this.vrOrigin);
+  }
+
+  private applyVrPlacement(): void {
+    if (!this.vr) {
+      this.diorama.scale.setScalar(1);
+      this.diorama.position.set(0, 0, 0);
+      this.diorama.rotation.set(0, 0, 0);
+      return;
+    }
+    // Centre the table on the park core: the diorama's own origin is shifted so the zones sit in front of the player.
+    const origin = tablePoint(new Vector3(0, 0, 0), this.core());
+    this.diorama.scale.setScalar(VR_MAP_SCALE);
+    this.diorama.position.copy(this.vrPoint(origin));
+    this.diorama.rotation.set(0, this.vrYaw, 0);
+    this.activeStory?.placeVr(this.vrPoint(VR_STAGE_POSITION), VR_STAGE_SCALE, this.vrYaw);
+  }
+
   setQuality(tier: QualityTier): void {
     this.tier = tier;
     const trees = Math.min(tier.trees, this.treeCap);
@@ -259,7 +307,7 @@ export class World {
     this.trunks.count = trees;
     this.ambient.geometry.setDrawRange(0, tier.particles);
     this.shadowsWanted = tier.shadows;
-    this.sun.castShadow = !this.external && tier.shadows;
+    this.sun.castShadow = !this.external && !this.vr && tier.shadows;
     this.zones.forEach((z) => z.setEmitters(tier.zoneEmitters));
   }
 
@@ -306,7 +354,10 @@ export class World {
     this.leaveStory();
     this.activeStory = story;
     story.group.visible = true;
-    if (this.external) {
+    if (this.vr) {
+      story.placeVr(this.vrPoint(VR_STAGE_POSITION), VR_STAGE_SCALE, this.vrYaw);
+      this.diorama.visible = false;
+    } else if (this.external) {
       const zone = this.zones.get(guardian.id);
       story.placePopup((zone?.worldPosition ?? new Vector3()).clone().add(new Vector3(0, 1.5, 0)));
       this.diorama.visible = true;
@@ -412,7 +463,7 @@ export class World {
 
   /** Tells the active story how big the view is (fov/aspect), so cover layers fill it exactly. */
   setStoryView(fovDeg: number, aspect: number): void {
-    this.activeStory?.setView(fovDeg, aspect, this.external);
+    this.activeStory?.setView(fovDeg, aspect, this.vr ? 'vr' : this.external ? 'popup' : 'screen');
   }
 
   /** Warms the art cache in the background so the first scene starts instantly. */

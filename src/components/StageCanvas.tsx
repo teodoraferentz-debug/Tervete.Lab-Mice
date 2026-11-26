@@ -10,6 +10,7 @@ interface Props {
   reducedMotion: boolean;
   onActivate: StageOptions['onActivate'];
   onMoment: StageOptions['onMoment'];
+  onVrEnd: StageOptions['onVrEnd'];
   /** Receives the mount point for AR backends that bring their own canvas and video. */
   arLayerRef: React.RefObject<HTMLDivElement | null>;
   onStage?: (stage: StageApi | null) => void;
@@ -19,13 +20,13 @@ interface Props {
 }
 
 /** Mounts the Three.js stage once and shares it with the scenes through context. */
-export function StageCanvas({ factory, reducedMotion, onActivate, onMoment, arLayerRef, onStage, cameraVisible = false, children }: Props) {
+export function StageCanvas({ factory, reducedMotion, onActivate, onMoment, onVrEnd, arLayerRef, onStage, cameraVisible = false, children }: Props) {
   const mountRef = useRef<HTMLDivElement>(null);
   const [stage, setStage] = useState<StageApi | null>(null);
   const initialMotion = useRef(reducedMotion);
-  const callbacks = useRef({ onActivate, onMoment, onStage });
+  const callbacks = useRef({ onActivate, onMoment, onStage, onVrEnd });
   useEffect(() => {
-    callbacks.current = { onActivate, onMoment, onStage };
+    callbacks.current = { onActivate, onMoment, onStage, onVrEnd };
   });
 
   useEffect(() => {
@@ -35,6 +36,7 @@ export function StageCanvas({ factory, reducedMotion, onActivate, onMoment, arLa
       reducedMotion: initialMotion.current,
       onActivate: (id) => callbacks.current.onActivate?.(id),
       onMoment: (id) => callbacks.current.onMoment?.(id),
+      onVrEnd: () => callbacks.current.onVrEnd?.(),
     });
     setStage(created);
     callbacks.current.onStage?.(created);

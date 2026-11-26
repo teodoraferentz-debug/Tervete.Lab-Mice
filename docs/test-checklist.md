@@ -76,6 +76,17 @@ dispozitivele reale.
 - [ ] Testat în lumina sălii reale, de la 30–60 cm, cu harta pe masă.
 - [ ] Plan B verificat: Magic Mode e la un apel distanță.
 
+## 7b. VR (Quest)
+
+- [ ] Quest și calculatorul pe același Wi‑Fi; `npm run dev:https`; adresa „Network" se deschide în browserul Quest (certificat acceptat).
+- [ ] Butonul **Enter VR** apare; la apăsare headsetul intră în sesiune, iar macheta apare în fața ta, pe masă.
+- [ ] Etichetele zonelor se citesc și nu se suprapun; raza (trigger) deschide zona indicată.
+- [ ] **A** merge la scena următoare, **B** la anterioara, **X** deschide meniul, **Y** oprește sunetul. Exit VR din meniu readuce pagina pe ecran.
+- [ ] Scena este un teatru în fața ta: straturile se separă când miști capul; subtitrările și mesajul „Presenter" se citesc fără să acopere imaginea.
+- [ ] Fluiditate (≈72 Hz) fără sacadări în hartă, scene și finală. Dacă sacadează: notează unde.
+- [ ] Confort după 5 minute (fără amețeală; camera nu se mișcă singură).
+- [ ] Scoți headsetul / meniul Quest: aplicația revine pe ecran, cu progresul păstrat.
+
 ## 8. Înainte de lansare / campanie
 
 - [ ] Harta finală și mascotele finale puse în `public/assets/illustrations/` și activate în

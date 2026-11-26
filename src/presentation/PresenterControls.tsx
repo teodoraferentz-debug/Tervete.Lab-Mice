@@ -69,7 +69,7 @@ export function PresenterControls({ state, controller }: Props) {
     return () => clearTimeout(id);
   }, [confirmRestart]);
 
-  const arLabel = state.mode === 'ar' ? `AR · ${state.ar}` : 'Magic Mode';
+  const arLabel = state.mode === 'ar' ? `AR · ${state.ar}` : state.mode === 'vr' ? 'VR' : 'Magic Mode';
 
   return (
     <aside className={`presenter${open ? ' presenter--open' : ''}`} aria-label="Presenter controls">

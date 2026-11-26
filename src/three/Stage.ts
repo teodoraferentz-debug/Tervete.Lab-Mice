@@ -1,6 +1,8 @@
 import {
+  Color,
   PCFSoftShadowMap,
   PerspectiveCamera,
+  Quaternion,
   Scene,
   Vector3,
   WebGLRenderer,
@@ -8,12 +10,16 @@ import {
 } from 'three';
 import type { ArRenderHost } from '../ar/ArAdapter';
 import type { Guardian, GuardianId } from '../content/guardians';
+import { PITCH } from '../content/pitchScript';
 import type { SceneClock } from '../experience/SceneClock';
 import { fitView, type ViewGoal } from './cameraRig';
 import { initialQuality, QualityGovernor, stepDown, TIERS, type QualityName } from './quality';
 import { LOOK_Y, STAGE_DISTANCE } from './story/StoryScene';
 import { MAP_W } from './textures';
 import type { ScreenPoint, StageApi } from './StageApi';
+import { VR_FOVEATION, VR_RESOLUTION_SCALE } from '../vr/layout';
+import type { VrActions } from '../vr/types';
+import { VrRig, type Playback } from '../vr/VrRig';
 import { World } from './World';
 
 export type { ScreenPoint };
@@ -27,6 +33,8 @@ export interface StageOptions {
   /** The memorable visual moment of a scene started. */
   onMoment?: (id: GuardianId | 'finale') => void;
   onQualityChange?: (name: QualityName) => void;
+  /** The headset session ended (headset off, system menu, or the in-VR Exit button). */
+  onVrEnd?: () => void;
 }
 
 type FrameListener = () => void;
@@ -65,6 +73,13 @@ export class Stage implements StageApi {
   private snapNext = true;
   private mapShown = false;
   private disposed = false;
+  private vr: VrRig | null = null;
+  private xrSession: XRSession | null = null;
+  private qualityBeforeVr: QualityName = 'medium';
+  private vrAnchored = false;
+  private vrFrames = 0;
+  /** What is playing now (a story scene or the finale), for the headset's captions. */
+  private playback: Playback | null = null;
 
   constructor(
     container: HTMLElement,
@@ -102,6 +117,7 @@ export class Stage implements StageApi {
 
   showMap(visited: readonly GuardianId[], justActivated: GuardianId | null): void {
     this.clock = null;
+    this.playback = null;
     // Coming back from a story scene is a cut, not a swoop through the (previously hidden) map.
     if (this.world.mode === 'attraction') this.snapNext = true;
     this.world.showMap(visited, justActivated, !this.mapShown);
@@ -113,6 +129,7 @@ export class Stage implements StageApi {
 
   playAttraction(guardian: Guardian, clock: SceneClock): void {
     this.clock = clock;
+    this.playback = { guardian, clock, beats: guardian.pitchBeats };
     this.world.playAttraction(guardian, clock);
     // The story scene is authored for a fixed camera on its axis; only parallax moves it (see tick()).
     this.snapNext = true;
@@ -122,6 +139,7 @@ export class Stage implements StageApi {
 
   playFinale(clock: SceneClock): void {
     this.clock = clock;
+    this.playback = { guardian: null, clock, beats: PITCH.finale.beats };
     this.world.playFinale(clock);
     this.applyFov();
     this.setView(() => fitView(this.camera, this.world.finaleBox(), 0, 0.36, 0.92, 0.8));
@@ -131,6 +149,89 @@ export class Stage implements StageApi {
     this.reducedMotion = reduced;
     this.snapNext = true;
   }
+
+  // ── VR (WebXR immersive session) ───────────────────────────────────────────
+
+  /**
+   * Starts a headset session. Must be called from a user gesture (the Enter VR button). The map becomes a
+   * tabletop miniature, scenes become a theatre in front of the player, and the headset UI (captions,
+   * menu, pointing) is drawn in 3D by VrRig. Rejects if the browser or device cannot do it.
+   */
+  async enterVr(actions: VrActions): Promise<void> {
+    const renderer = this.renderer;
+    const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
+    if (!renderer || !xr || this.vr || this.host || this.disposed) throw new Error('VR is not available');
+    const session = await xr.requestSession('immersive-vr', { optionalFeatures: ['local'] });
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType('local');
+    renderer.xr.setFramebufferScaleFactor(VR_RESOLUTION_SCALE);
+    renderer.xr.setFoveation(VR_FOVEATION);
+    await renderer.xr.setSession(session);
+
+    this.stopLoop();
+    this.xrSession = session;
+    this.vrAnchored = false;
+    this.vrFrames = 0;
+    this.qualityBeforeVr = this.quality;
+    this.applyQuality('low'); // Quest 1 is a 2019 phone-class GPU
+    this.world.setVr(true);
+    this.internalScene.background = new Color('#07271b');
+    this.vr = new VrRig({
+      renderer,
+      scene: this.internalScene,
+      world: this.world,
+      actions,
+      playback: () => this.playback,
+      exit: () => void session.end(),
+    });
+    this.internalScene.add(this.vr.group, this.vr.inputGroup);
+    session.addEventListener('end', this.onVrEnded);
+
+    this.running = true;
+    this.last = performance.now();
+    renderer.setAnimationLoop(this.tick);
+  }
+
+  /** Places the VR content where the player is standing, facing the way they face. */
+  private anchorVr(): void {
+    const renderer = this.renderer;
+    if (!renderer || !this.vr) return;
+    const cam = renderer.xr.getCamera();
+    const origin = cam.getWorldPosition(new Vector3());
+    const forward = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
+    forward.y = 0;
+    const yaw = forward.lengthSq() < 1e-6 ? 0 : Math.atan2(-forward.x, -forward.z);
+    this.world.setVrAnchor(origin, yaw);
+    this.vr.setAnchor(origin, yaw);
+    this.vrAnchored = true;
+  }
+
+  exitVr(): void {
+    void this.xrSession?.end();
+  }
+
+  private onVrEnded = (): void => {
+    const renderer = this.renderer;
+    this.xrSession?.removeEventListener('end', this.onVrEnded);
+    this.xrSession = null;
+    if (renderer) {
+      renderer.setAnimationLoop(null);
+      renderer.xr.enabled = false;
+    }
+    this.vr?.dispose();
+    this.vr = null;
+    this.internalScene.background = null;
+    this.world.setVr(false);
+    this.applyQuality(this.qualityBeforeVr);
+    this.running = false;
+    this.snapNext = true;
+    if (!this.disposed) {
+      this.start();
+      this.resize();
+      this.applyFov();
+    }
+    this.opts.onVrEnd?.();
+  };
 
   // ── AR host ───────────────────────────────────────────────────────────────
 
@@ -207,6 +308,7 @@ export class Stage implements StageApi {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    void this.xrSession?.end();
     this.stopLoop();
     this.resizeObserver?.disconnect();
     this.host?.renderer.setAnimationLoop(null);
@@ -243,7 +345,8 @@ export class Stage implements StageApi {
     const tier = TIERS[name];
     this.world.setQuality(tier);
     if (this.renderer) {
-      this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tier.maxDpr));
+      // (Resizing the canvas is not allowed while a headset is presenting.)
+      if (!this.renderer.xr.isPresenting) this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, tier.maxDpr));
       this.renderer.shadowMap.enabled = tier.shadows;
     }
     this.opts.onQualityChange?.(name);
@@ -266,6 +369,7 @@ export class Stage implements StageApi {
   }
 
   private resize(): void {
+    if (this.vr || this.renderer?.xr.isPresenting) return; // the headset sets the size
     const { clientWidth: w, clientHeight: h } = this.container;
     if (w === 0 || h === 0) return;
     this.camera.aspect = w / h;
@@ -317,7 +421,13 @@ export class Stage implements StageApi {
     this.clock?.tick(Math.min(0.5, elapsed));
     this.world.update(dt, this.time, this.motion, this.host?.camera ?? this.camera);
 
-    if (!this.host && this.world.mode === 'attraction') {
+    // The head pose is only valid once a few frames have been rendered, so anchor on the third.
+    if (this.vr && !this.vrAnchored && ++this.vrFrames >= 3) this.anchorVr();
+    this.vr?.update(dt, this.time);
+
+    if (this.vr) {
+      // The headset owns the camera: never move it (that would make the player sick).
+    } else if (!this.host && this.world.mode === 'attraction') {
       // Cinematic camera: a slow drift for parallax and a gentle push-in across the scene.
       const dur = this.clock?.duration ?? 30;
       const progress = this.clock ? this.clock.time / dur : 0;
@@ -343,7 +453,7 @@ export class Stage implements StageApi {
     const camera = this.host?.camera ?? this.camera;
     renderer?.render(scene, camera);
 
-    if (!this.host && this.governor.record(dt) && this.quality !== 'low') {
+    if (!this.host && !this.vr && this.governor.record(dt) && this.quality !== 'low') {
       this.applyQuality(stepDown(this.quality));
       this.governor.reset();
     }

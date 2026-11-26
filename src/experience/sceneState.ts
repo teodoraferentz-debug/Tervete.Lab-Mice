@@ -33,6 +33,8 @@ export const initialState: ExperienceState = {
 
 export type Action =
   | { type: 'startAr' }
+  | { type: 'startVr' }
+  | { type: 'vrEnded' }
   | { type: 'enterMagic'; notice?: Notice | null }
   | { type: 'arStatus'; status: ArStatus }
   | { type: 'goTo'; scene: JumpTarget }
@@ -65,6 +67,12 @@ function enterMagic(s: ExperienceState, notice: Notice | null): ExperienceState 
   const leavingIntro = s.scene === 'welcome' || s.scene === 'scan';
   const base: ExperienceState = { ...s, mode: 'magic', ar: 'idle', notice };
   return leavingIntro ? enter(base, { scene: 'map', justActivated: null }) : base;
+}
+
+/** A headset session is running: no scan step, straight to the map (or stay where the show is). */
+function startVr(s: ExperienceState): ExperienceState {
+  const base: ExperienceState = { ...s, mode: 'vr', ar: 'idle', notice: null };
+  return s.scene === 'welcome' || s.scene === 'scan' ? enter(base, { scene: 'map', justActivated: null }) : base;
 }
 
 function jump(s: ExperienceState, scene: JumpTarget): ExperienceState {
@@ -122,6 +130,11 @@ export function reduce(s: ExperienceState, a: Action): ExperienceState {
   switch (a.type) {
     case 'startAr':
       return enter(s, { mode: 'ar', ar: 'starting', scene: 'scan', notice: null, justActivated: null });
+    case 'startVr':
+      return startVr(s);
+    case 'vrEnded':
+      // The headset came off (or the session ended): carry on on the screen, nothing is lost.
+      return s.mode === 'vr' ? { ...s, mode: 'magic', ar: 'idle' } : s;
     case 'enterMagic':
       return enterMagic(s, a.notice ?? null);
     case 'arStatus': {
@@ -145,8 +158,10 @@ export function reduce(s: ExperienceState, a: Action): ExperienceState {
     case 'prev':
       return prev(s);
     case 'restart':
-      // Everything resets except the audio preference.
-      return { ...initialState, muted: s.muted };
+      // Everything resets except the audio preference. Inside a headset, restarting stays in the headset.
+      return s.mode === 'vr'
+        ? { ...initialState, muted: s.muted, mode: 'vr', scene: 'map' }
+        : { ...initialState, muted: s.muted };
     case 'toggleMute':
       return { ...s, muted: !s.muted };
     case 'dismissNotice':

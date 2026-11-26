@@ -213,6 +213,7 @@
   padding: 6px 16px 6px 6px;
   border-radius: 999px;
   background: var(--surface);
+  border: 1px solid var(--accent, var(--tv-gold));
   border: 1px solid color-mix(in srgb, var(--accent, var(--tv-gold)) 55%, transparent);
   backdrop-filter: blur(8px);
   animation: slide-in 0.5s ease both;
@@ -305,6 +306,7 @@
   padding: 10px 18px 12px;
   border-radius: var(--radius);
   background: var(--surface-strong);
+  border: 1px solid var(--accent, var(--tv-gold));
   border: 1px solid color-mix(in srgb, var(--accent, var(--tv-gold)) 50%, transparent);
   box-shadow: var(--shadow);
   text-align: center;
@@ -453,7 +455,9 @@
 .marker--awake .marker__badge {
   color: #14100a;
   background: var(--accent);
+  border-color: var(--accent, var(--tv-gold));
   border-color: color-mix(in srgb, var(--accent) 60%, white);
+  box-shadow: 0 0 28px var(--accent, var(--tv-gold));
   box-shadow: 0 0 28px color-mix(in srgb, var(--accent) 80%, transparent);
 }
 

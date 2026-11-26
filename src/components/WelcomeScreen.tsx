@@ -4,11 +4,14 @@ import { PITCH } from '../content/pitchScript';
 import { useStage } from './StageContext';
 
 interface Props {
+  /** A headset session can start here: then VR replaces the camera-based AR button. */
+  vrAvailable: boolean;
+  onEnterVr: () => void;
   onStartAr: () => void;
   onMagic: () => void;
 }
 
-export function WelcomeScreen({ onStartAr, onMagic }: Props) {
+export function WelcomeScreen({ vrAvailable, onEnterVr, onStartAr, onMagic }: Props) {
   const stage = useStage();
   // The sleeping diorama sits behind the welcome card.
   useEffect(() => {
@@ -29,10 +32,17 @@ export function WelcomeScreen({ onStartAr, onMagic }: Props) {
         <p className="welcome__lead">{PITCH.welcome.lead}</p>
 
         <div className="welcome__actions">
-          <button type="button" className="btn btn--primary" onClick={onStartAr}>
-            <span className="btn__title">{PITCH.welcome.startAr}</span>
-            <span className="btn__hint">{PITCH.welcome.startArHint}</span>
-          </button>
+          {vrAvailable ? (
+            <button type="button" className="btn btn--primary" onClick={onEnterVr}>
+              <span className="btn__title">{PITCH.welcome.enterVr}</span>
+              <span className="btn__hint">{PITCH.welcome.enterVrHint}</span>
+            </button>
+          ) : (
+            <button type="button" className="btn btn--primary" onClick={onStartAr}>
+              <span className="btn__title">{PITCH.welcome.startAr}</span>
+              <span className="btn__hint">{PITCH.welcome.startArHint}</span>
+            </button>
+          )}
           <button type="button" className="btn btn--secondary" onClick={onMagic}>
             <span className="btn__title">{PITCH.welcome.magic}</span>
             <span className="btn__hint">{PITCH.welcome.magicHint}</span>

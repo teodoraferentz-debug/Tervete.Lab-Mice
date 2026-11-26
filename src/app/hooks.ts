@@ -1,7 +1,8 @@
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ExperienceController } from '../experience/ExperienceController';
 import type { ExperienceState } from '../experience/sceneState';
 import type { SceneClock } from '../experience/SceneClock';
+import { vrSupported } from '../vr/support';
 
 export function useExperience(controller: ExperienceController): ExperienceState {
   return useSyncExternalStore(controller.subscribe, controller.getState, controller.getState);
@@ -34,4 +35,17 @@ export function useLatest<T>(value: T): { current: T } {
     ref.current = value;
   });
   return ref;
+}
+
+/** Whether a headset session can start here (checked once, asynchronously). */
+export function useVrAvailable(): boolean {
+  const [available, setAvailable] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    void vrSupported().then((ok) => alive && setAvailable(ok));
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return available;
 }

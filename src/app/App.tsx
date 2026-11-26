@@ -17,7 +17,7 @@ import { FinaleScene } from '../scenes/FinaleScene';
 import { MapScene } from '../scenes/MapScene';
 import { Stage } from '../three/Stage';
 import type { StageApi } from '../three/StageApi';
-import { useExperience, useReducedMotion } from './hooks';
+import { useExperience, useReducedMotion, useVrAvailable } from './hooks';
 import { useArSession } from './useArSession';
 
 const defaultStageFactory: StageFactory = (container, options) => new Stage(container, options);
@@ -26,6 +26,7 @@ const NOTICE_TEXT: Record<NoticeCode, string> = {
   'ar-denied': PITCH.notices.arDenied,
   'ar-unsupported': PITCH.notices.arUnsupported,
   'ar-error': PITCH.notices.arError,
+  'vr-error': PITCH.notices.vrError,
 };
 
 export interface AppProps {
@@ -41,6 +42,7 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
   const audio = useMemo(() => new AudioEngine(), []);
   const [stage, setStage] = useState<StageApi | null>(null);
   const arLayerRef = useRef<HTMLDivElement>(null);
+  const vrAvailable = useVrAvailable();
 
   useArSession({ mode: state.mode, controller, stage, layerRef: arLayerRef, createAdapter: arFactory });
 
@@ -64,6 +66,24 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
   const onActivate = useCallback((id: (typeof GUARDIAN_IDS)[number]) => audio.chime(GUARDIAN_IDS.indexOf(id)), [audio]);
   const onMoment = useCallback((id: (typeof GUARDIAN_IDS)[number] | 'finale') => audio.chime(id === 'finale' ? 5 : GUARDIAN_IDS.indexOf(id)), [audio]);
 
+  // Entering a headset needs the browser's permission prompt, so it starts straight from the button press.
+  const enterVr = useCallback(async () => {
+    audio.start();
+    if (!stage) return;
+    try {
+      await stage.enterVr(controller);
+      controller.startVr();
+    } catch (error) {
+      console.warn('[VR] could not start:', error);
+      controller.dispatch({ type: 'enterMagic', notice: { code: 'vr-error' } });
+    }
+  }, [audio, stage, controller]);
+
+  // Leaving VR mode (Magic Mode from the panel, or anything else) ends the headset session.
+  useEffect(() => {
+    if (state.mode !== 'vr') stage?.exitVr();
+  }, [state.mode, stage]);
+
   const cameraVisible = state.mode === 'ar' && (state.ar === 'scanning' || state.ar === 'tracking' || state.ar === 'lost');
   const scene = state.scene;
 
@@ -73,12 +93,13 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
       reducedMotion={reducedMotion}
       onActivate={onActivate}
       onMoment={onMoment}
+      onVrEnd={controller.vrEnded}
       arLayerRef={arLayerRef}
       onStage={setStage}
       cameraVisible={cameraVisible}
     >
       <main className="hud" aria-label="Tērvete Awakens — Five Senses Trail">
-        {scene === 'welcome' ? <WelcomeScreen onStartAr={controller.startAr} onMagic={controller.enterMagic} /> : null}
+        {scene === 'welcome' ? <WelcomeScreen vrAvailable={vrAvailable} onEnterVr={enterVr} onStartAr={controller.startAr} onMagic={controller.enterMagic} /> : null}
         {scene === 'scan' ? <ScanOverlay status={state.ar} onContinueMagic={controller.enterMagic} /> : null}
         {scene === 'map' ? <MapScene state={state} controller={controller} /> : null}
         {isGuardianScene(scene) ? (

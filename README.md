@@ -33,9 +33,30 @@ Deschide adresa afișată (în mod normal `http://localhost:5173`).
 | `npm run preview` | servește `dist/` |
 | `npm run typecheck` · `npm run lint` · `npm test` | verificări |
 
+## VR (Meta Quest)
+
+Aplicația rulează și într-un headset, cu WebXR, direct din browserul Quest. Nu se instalează nimic pe
+headset și nu se conectează nimic la mine: calculatorul tău servește pagina, iar Quest o deschide.
+
+1. Calculatorul și Quest pe **același Wi‑Fi** (Bluetooth nu contează).
+2. Pe calculator: `npm install`, apoi `npm run dev:https`. Notează adresa „Network", de forma
+   `https://192.168.x.x:5173/`. Dacă Windows întreabă despre firewall, permite accesul.
+3. În **browserul Quest**, deschide adresa. Apare un avertisment de certificat (autosemnat): *Advanced*,
+   apoi *Proceed*. Pagina cere HTTPS, altfel butonul VR nu apare.
+4. Apasă **Enter VR**.
+
+Controale (Touch): **trigger** alege ce indică raza (o zonă de pe hartă sau un buton) · **A** următoarea
+scenă · **B** anterioara · **X** meniu de prezentator (inclusiv Exit VR și Restart) · **Y** sunet.
+Imaginea se poate oglindi pe un ecran cu funcția *Cast* din Quest, pentru public.
+
+În VR harta devine o machetă pe o masă, iar fiecare atracție devine un teatru în adâncime în fața ta.
+Recuzita fizică nu se vede în VR (headsetul acoperă ochii; Quest 1 nu are cameră în browser), deci mesajul
+„Presenter" se citește în headset, iar recuzita se ridică înainte sau după.
+
 ## Moduri
 
 - **Magic Mode**: funcționează complet fără cameră și fără marker. Este modul sigur pentru pitch.
+- **VR mode** (`Enter VR`): apare doar dacă browserul poate porni o sesiune de headset. Înlocuiește butonul AR.
 - **AR mode** (`Start AR`): încearcă recunoașterea hărții A3 tipărite cu MindAR. Dacă nu merge (cameră
   refuzată, dispozitiv nesuportat, marker lipsă, hartă nerecunoscută), aplicația continuă singură în
   Magic Mode, cu un mesaj. Camera nu blochează niciodată aplicația.

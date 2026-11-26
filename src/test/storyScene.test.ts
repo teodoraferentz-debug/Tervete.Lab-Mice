@@ -35,17 +35,19 @@ describe('StoryScene', () => {
     const camera = new PerspectiveCamera(32, 16 / 9);
     camera.position.set(0, 0, 16);
 
-    for (const popup of [false, true]) {
-      scene.setView(32, popup ? 1 : 16 / 9, popup);
+    for (const mode of ['screen', 'popup', 'vr'] as const) {
+      const popup = mode !== 'screen';
+      scene.setView(32, popup ? 1 : 16 / 9, mode);
       if (popup) {
         const parent = new Group();
         parent.add(scene.group);
-        scene.placePopup(new Vector3(1, 1, 1));
+        if (mode === 'vr') scene.placeVr(new Vector3(0, 0, -2.4), 0.15);
+        else scene.placePopup(new Vector3(1, 1, 1));
       } else scene.placeScreen();
       for (const motion of [1, 0]) {
         for (let t = 0; t <= g.durationSec; t += 0.5) {
           scene.update(t, cues, t + 3, motion, g.durationSec, camera);
-          expect(allFinite(scene.group), `${g.id} t=${t} popup=${popup} motion=${motion}`).toBe(true);
+          expect(allFinite(scene.group), `${g.id} t=${t} mode=${mode} motion=${motion}`).toBe(true);
         }
       }
     }

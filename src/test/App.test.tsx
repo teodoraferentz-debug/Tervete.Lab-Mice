@@ -218,3 +218,85 @@ describe('accessibility', () => {
     expect(stage().calls.at(-1)).toBe('attraction:austina');
   });
 });
+
+describe('VR', () => {
+  const nav = navigator as Navigator & { xr?: unknown };
+  const secure = (value: boolean) => Object.defineProperty(window, 'isSecureContext', { value, configurable: true });
+  const withHeadset = (supported: boolean) => {
+    secure(true);
+    Object.defineProperty(nav, 'xr', { value: { isSessionSupported: async () => supported }, configurable: true });
+  };
+  afterEach(() => {
+    Reflect.deleteProperty(nav, 'xr');
+    secure(false);
+  });
+
+  it('offers Enter VR (instead of Start AR) when a headset session is possible', async () => {
+    withHeadset(true);
+    setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('button', { name: /Enter VR/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Start AR/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Magic Mode/ })).toBeTruthy();
+  });
+
+  it('keeps Start AR when there is no headset support', async () => {
+    withHeadset(false);
+    setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole('button', { name: /Start AR/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Enter VR/ })).toBeNull();
+  });
+
+  it('Enter VR starts the headset session and opens the map; Magic Mode from the panel ends it', async () => {
+    withHeadset(true);
+    const { stage } = setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enter VR/ }));
+    });
+    expect(stage().vrActions).not.toBeNull();
+    expect(screen.getByText('0 of 5 guardians awake')).toBeTruthy();
+    press('p');
+    expect(screen.getByText(/VR · 0\/5 awake/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to Magic Mode' }));
+    expect(stage().vrExits).toBeGreaterThan(0);
+  });
+
+  it('the headset UI drives the same experience (select a zone, next, finish a scene)', async () => {
+    withHeadset(true);
+    const { stage } = setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enter VR/ }));
+    });
+    const actions = stage().vrActions!;
+    act(() => actions.selectZone('skats'));
+    expect(stage().calls.at(-1)).toBe('attraction:skats');
+    finishScene(stage);
+    expect(actions.getState().visited).toEqual(['skats']);
+  });
+
+  it('a headset that cannot start continues in Magic Mode with a message', async () => {
+    withHeadset(true);
+    const { stage } = setup();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    stage().failVr = true;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Enter VR/ }));
+    });
+    expect(screen.getByText(PITCH.notices.vrError)).toBeTruthy();
+    expect(screen.getByText('0 of 5 guardians awake')).toBeTruthy();
+  });
+});

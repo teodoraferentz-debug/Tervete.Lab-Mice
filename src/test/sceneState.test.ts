@@ -139,3 +139,41 @@ describe('experience state', () => {
     expect(c.getState().visited).toEqual(['skats']);
   });
 });
+
+describe('VR mode', () => {
+  it('enters straight on the map (no scan step) and keeps the show where it is', () => {
+    const s = run([{ type: 'startVr' }]);
+    expect(s).toMatchObject({ mode: 'vr', scene: 'map', ar: 'idle', visited: [] });
+    const mid = run([{ type: 'enterMagic' }, ...complete('skats'), { type: 'startVr' }]);
+    expect(mid).toMatchObject({ mode: 'vr', scene: 'map', visited: ['skats'] });
+    const inScene = run([{ type: 'enterMagic' }, { type: 'selectZone', id: 'odzina' }, { type: 'startVr' }]);
+    expect(inScene.scene).toBe('odzina');
+  });
+
+  it('when the session ends, carry on on the screen without losing anything', () => {
+    const s = run([{ type: 'startVr' }, ...complete('skats'), ...complete('austina'), { type: 'vrEnded' }]);
+    expect(s).toMatchObject({ mode: 'magic', scene: 'map', visited: ['skats', 'austina'] });
+    // ending a session that is not running changes nothing
+    const magic = run([{ type: 'enterMagic' }]);
+    expect(reduce(magic, { type: 'vrEnded' })).toBe(magic);
+  });
+
+  it('restart inside the headset stays in the headset, on the map', () => {
+    const s = run([{ type: 'startVr' }, ...complete('skats'), { type: 'restart' }]);
+    expect(s).toMatchObject({ mode: 'vr', scene: 'map', visited: [] });
+  });
+
+  it('a failed headset start falls back to Magic Mode with a notice', () => {
+    const s = run([{ type: 'enterMagic', notice: { code: 'vr-error' } }]);
+    expect(s).toMatchObject({ mode: 'magic', scene: 'map' });
+    expect(s.notice?.code).toBe('vr-error');
+  });
+
+  it('next/prev work the same in VR (the controllers use them)', () => {
+    let s = run([{ type: 'startVr' }]);
+    s = reduce(s, { type: 'next' });
+    expect(s.scene).toBe('skats');
+    s = reduce(s, { type: 'next' });
+    expect(s).toMatchObject({ scene: 'map', visited: ['skats'], mode: 'vr' });
+  });
+});

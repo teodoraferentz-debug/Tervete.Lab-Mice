@@ -34,6 +34,8 @@ export class ExperienceController {
   };
 
   startAr = () => this.dispatch({ type: 'startAr' });
+  startVr = () => this.dispatch({ type: 'startVr' });
+  vrEnded = () => this.dispatch({ type: 'vrEnded' });
   enterMagic = () => this.dispatch({ type: 'enterMagic' });
   setArStatus = (status: ArStatus) => this.dispatch({ type: 'arStatus', status });
   goTo = (scene: JumpTarget) => this.dispatch({ type: 'goTo', scene });

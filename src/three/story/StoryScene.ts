@@ -173,6 +173,8 @@ export class StoryScene {
   private fovHalfTan = Math.tan((31.4 * Math.PI) / 360);
   private screenAspect = 16 / 9;
   private popup = false;
+  /** Inside a headset: fixed in the room, no billboard, a backdrop big enough to surround the player. */
+  private vr = false;
   private readonly mascotKey: string;
   private disposed = false;
 
@@ -266,16 +268,24 @@ export class StoryScene {
   }
 
   /** Screen mode fills the viewport; popup mode (AR) floats the scene above the map, facing the camera. */
-  setView(fovDeg: number, aspect: number, popup: boolean): void {
+  setView(fovDeg: number, aspect: number, mode: 'screen' | 'popup' | 'vr'): void {
     this.fovHalfTan = Math.tan((fovDeg * Math.PI) / 360);
     this.screenAspect = aspect;
-    this.popup = popup;
+    this.popup = mode !== 'screen';
+    this.vr = mode === 'vr';
   }
 
   placeScreen(): void {
     this.group.position.set(0, 0, 0);
     this.group.scale.setScalar(1);
     this.group.rotation.set(0, 0, 0);
+  }
+
+  /** In a headset the stage is a fixed "theatre" in front of the player. */
+  placeVr(at: Vector3, scale: number, yaw = 0): void {
+    this.group.position.copy(at);
+    this.group.scale.setScalar(scale);
+    this.group.rotation.set(0, yaw, 0);
   }
 
   placePopup(at: Vector3, scale = 0.15): void {
@@ -290,7 +300,7 @@ export class StoryScene {
     const ctx: UpdateCtx = { time, motion, fade, theme: this.theme };
     const cue = (c: CueKind | undefined): number => cues[c ?? 'enter'] ?? 0;
 
-    if (this.popup && camera) {
+    if (this.popup && !this.vr && camera) {
       // AR pop-up: stay parallel to the camera image (a full billboard), so it reads from any angle,
       // including when the phone looks straight down at the map.
       const camQ = camera.getWorldQuaternion(new Quaternion());
@@ -326,7 +336,8 @@ export class StoryScene {
   private visibleHalf(z: number): { halfH: number; halfW: number } {
     if (this.popup) {
       const s = depthScale(z);
-      return { halfH: HALF_H * s * 1.12, halfW: HALF_H * s * 1.12 * (16 / 9) };
+      const k = this.vr ? 3.4 : 1.12; // a headset backdrop must surround the player, an AR pop-up is a card
+      return { halfH: HALF_H * s * k, halfW: HALF_H * s * k * (16 / 9) };
     }
     const halfH = (STAGE_DISTANCE - z) * this.fovHalfTan;
     return { halfH, halfW: halfH * this.screenAspect };

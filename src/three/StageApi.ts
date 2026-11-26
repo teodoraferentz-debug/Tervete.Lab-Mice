@@ -1,6 +1,7 @@
 import type { ArRenderHost } from '../ar/ArAdapter';
 import type { Guardian, GuardianId } from '../content/guardians';
 import type { SceneClock } from '../experience/SceneClock';
+import type { VrActions } from '../vr/types';
 
 export interface ScreenPoint {
   x: number;
@@ -17,6 +18,9 @@ export interface StageApi {
   project(id: GuardianId, out: ScreenPoint): ScreenPoint;
   onFrame(listener: () => void): () => void;
   useHost(host: ArRenderHost | null): void;
+  /** Starts a headset session (call from a user gesture). Rejects if VR cannot start. */
+  enterVr(actions: VrActions): Promise<void>;
+  exitVr(): void;
   setReducedMotion(reduced: boolean): void;
   dispose(): void;
 }

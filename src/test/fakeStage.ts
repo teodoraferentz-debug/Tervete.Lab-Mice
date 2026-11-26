@@ -1,6 +1,7 @@
 import type { ArRenderHost } from '../ar/ArAdapter';
 import type { Guardian, GuardianId } from '../content/guardians';
 import type { SceneClock } from '../experience/SceneClock';
+import type { VrActions } from '../vr/types';
 import type { StageFactory } from '../components/StageCanvas';
 import type { ScreenPoint, StageApi } from '../three/StageApi';
 
@@ -13,6 +14,9 @@ export class FakeStage implements StageApi {
   lastMap: { visited: readonly GuardianId[]; justActivated: GuardianId | null } | null = null;
   hosts: Array<ArRenderHost | null> = [];
   disposed = false;
+  vrActions: VrActions | null = null;
+  vrExits = 0;
+  failVr = false;
 
   showMap(visited: readonly GuardianId[], justActivated: GuardianId | null): void {
     this.calls.push('map');
@@ -38,6 +42,13 @@ export class FakeStage implements StageApi {
   }
   useHost(host: ArRenderHost | null): void {
     this.hosts.push(host);
+  }
+  async enterVr(actions: VrActions): Promise<void> {
+    if (this.failVr) throw new Error('no headset');
+    this.vrActions = actions;
+  }
+  exitVr(): void {
+    this.vrExits += 1;
   }
   setReducedMotion(reduced: boolean): void {
     this.reducedMotion = reduced;

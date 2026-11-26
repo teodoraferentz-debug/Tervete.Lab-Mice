@@ -3,7 +3,8 @@ import type { GuardianId } from '../content/guardians';
 /** `scan` only exists in AR mode, while the camera looks for the printed map. */
 export type SceneId = 'welcome' | 'scan' | 'map' | GuardianId | 'finale';
 
-export type ExperienceMode = 'ar' | 'magic';
+/** ar: camera + printed map. vr: a headset session (WebXR). magic: plain screen, no hardware. */
+export type ExperienceMode = 'ar' | 'vr' | 'magic';
 
 export type ArStatus =
   | 'idle'
@@ -15,7 +16,7 @@ export type ArStatus =
   | 'unsupported'
   | 'error';
 
-export type NoticeCode = 'ar-denied' | 'ar-unsupported' | 'ar-error';
+export type NoticeCode = 'ar-denied' | 'ar-unsupported' | 'ar-error' | 'vr-error';
 
 export interface Notice {
   code: NoticeCode;

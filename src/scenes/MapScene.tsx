@@ -3,10 +3,11 @@ import { BottomStack } from '../components/BottomStack';
 import { Subtitles } from '../components/Subtitles';
 import { useStage } from '../components/StageContext';
 import { ZoneMarkers } from '../components/ZoneMarkers';
-import { GUARDIANS, getGuardian } from '../content/guardians';
+import { GUARDIANS } from '../content/guardians';
 import { PITCH } from '../content/pitchScript';
 import type { ExperienceController } from '../experience/ExperienceController';
 import { allVisited, type ExperienceState } from '../experience/sceneState';
+import { mapLine } from './mapLine';
 
 interface Props {
   state: ExperienceState;
@@ -24,11 +25,7 @@ export function MapScene({ state, controller }: Props) {
   }, [stage, visited, justActivated, nonce]);
 
   const done = allVisited(state);
-  const line = done
-    ? PITCH.map.allAwake
-    : justActivated
-      ? PITCH.map.awakened(getGuardian(justActivated))
-      : PITCH.map.intro;
+  const line = mapLine(state);
 
   return (
     <>

@@ -42,7 +42,8 @@ export default defineConfig({
     rolldownOptions: { plugins: [optimizerShim] },
   },
   build: {
-    target: 'es2022',
+    // The Quest 1 browser stopped updating in 2023: keep the output readable by older Chromium builds.
+    target: 'es2020',
     // three + react ≈ 0.9 MB. MindAR (≈1.3 MB) is its own chunk and only loads in AR mode.
     chunkSizeWarningLimit: 1400,
   },
