@@ -1,0 +1,158 @@
+# Note tehnice
+
+## Pe scurt
+
+React 19 + TypeScript + Vite 8, Three.js pentru tot ce se vede în 3D. Fără backend, autentificare,
+localizare, GPS, analitice, recunoaștere de obiecte sau colectare de date. În Magic Mode nu se face
+nicio cerere de rețea după încărcarea paginii.
+
+```
+src/
+  content/      date: guardians.ts (sursa unică), pitchScript.ts, assets.ts, brand.ts
+  experience/   starea: sceneState.ts (reducer pur), ExperienceController.ts, SceneClock.ts, timeline.ts
+  ar/           ArAdapter (contract), MockArAdapter, MindArAdapter (izolat, lazy), createArAdapter
+  three/        Stage (render loop, cameră, calitate), World (dioramă), ZoneRig, SensesTree,
+                activities (vizualuri pentru activitățile fizice), Mascot, landmarks, textures, kit
+  scenes/       MapScene, AttractionScene, FinaleScene (HUD React + comenzi către Stage)
+  presentation/ PresenterControls
+  components/   Welcome, Scan, ZoneMarkers, Subtitles, PropPrompt, Notice, StageCanvas
+  audio/        AudioEngine (WebAudio procedural, fără fișiere)
+  app/          App, hooks, useArSession, main
+  styles/       tokens.css (brand), base.css, ui.css
+  test/         teste (vezi mai jos)
+```
+
+## Starea este deterministă
+
+Toată experiența este un singur obiect (`ExperienceState`) care se schimbă doar prin `reduce()`
+(`src/experience/sceneState.ts`): funcție pură, fără timere, fără aleatoriu, fără API-uri de browser.
+Aceleași acțiuni dau mereu aceeași stare. Pentru repetiții: **Restart** readuce totul la început
+(păstrează doar preferința de sunet).
+
+```
+welcome ──Start AR──▶ scan ──map found──▶ map ⇄ attraction(skats|austina|odzina|deguntins|plaukstina)
+   │                    │                  │
+   └──Magic Mode────────┴──────────────────┤ după toate cinci
+                                           └──▶ finale
+```
+
+- Scenele de atracție rulează pe un `SceneClock` care avansează doar prin `tick(dt)`: determinist și
+  testabil. `Stage` îl avansează cu timpul real (max. 0,5 s per cadru), deci o scenă de 30 s durează
+  30 s și pe un telefon lent, iar un tab ascuns nu o sare.
+- La sfârșitul cronologiei, scena așteaptă 1,2 s (să se citească ultima replică), apoi revine pe hartă
+  și aprinde zona. `Next`/`Previous` din panou sunt definite ca inverse exacte unul altuia.
+- `nonce` crește la fiecare intrare într-o scenă, așa că reluarea aceleiași scene o repornește.
+
+## Datele ghidează totul
+
+`src/content/guardians.ts` definește fiecare gardian: `id, name, sense, zone, themeColor,
+learningGoal, physicalExperience, pitchBeats, propCue, rewardVisual, assetKeys, safetyNote` (plus
+`durationSec`, `senseLabel`). Ecranele și scena 3D nu conțin nume, culori, replici sau recuzită scrise
+de mână. Cheile din `assetKeys` aleg ce construiește `three/` (reper, activitate, mascotă), iar
+testele verifică ca fiecare cheie să aibă implementare.
+
+**Cronologia unei scene** este `pitchBeats`: replici (`mascot`, `narrator`) sau instrucțiuni pentru
+prezentator (`presenter`), fiecare cu un moment (`at`) și, opțional, un `cue` (`enter`, `activity`,
+`moment`, `prompt`). Vizualurile 3D sunt funcții de timp relative la aceste cue-uri.
+
+## Două moduri
+
+| | Magic Mode | AR mode |
+|---|---|---|
+| Cameră | nu | da (MindAR) |
+| Marker | nu | `public/assets/markers/tervete-map.mind` |
+| Randare | `Stage` are propriul renderer și cameră (cu mișcări cinematice) | MindAR deține camera și rendererul; diorama e atașată ancorei hărții |
+| Cădere | — | orice eșec → Magic Mode, cu mesaj, fără blocaj |
+
+`?ar=mock` simulează scanarea (fără cameră), ca să repeți fluxul AR sau să-l testezi.
+
+### Integrarea MindAR (opțională și izolată)
+
+- Doar `src/ar/MindArAdapter.ts` o importă, printr-un `import()` dinamic. Magic Mode nu descarcă
+  MindAR/TensorFlow (≈1,3 MB, chunk separat).
+- Eșecurile (`unsupported`, `denied`, `error`) devin status-uri, nu excepții. Reducerea le transformă
+  în Magic Mode. Scanarea are mereu butonul „Continue in Magic Mode".
+- `Stage.useHost()` mută diorama în `anchor.group` (1 unitate = lățimea hărții, +Z iese din hârtie) și
+  predă bucla de randare lui MindAR.
+- **Compatibilitate:** `mind-ar` importă `sRGBEncoding`, scos din three în r162. Un shim de build
+  (`src/ar/threeCompat.ts`, activat din `vite.config.ts` doar pentru importurile venite din
+  `mind-ar`) rezolvă asta atât la build, cât și în serverul de dev. `mind-ar` aduce și `canvas`
+  (modul nativ, folosit doar de compilatorul din Node); `package.json` îl suprascrie cu un stub local
+  (`stubs/canvas`) ca instalarea să nu necesite compilare nativă.
+- **Marker:** trebuie compilat din harta A3 finală (vezi `public/assets/markers/README.md`). Până atunci
+  `Start AR` revine în Magic Mode cu un mesaj.
+- **Testat:** în Chromium, cu cameră falsă ce afișează harta și un marker compilat din harta
+  placeholder: MindAR pornește, recunoaște harta, aplicația trece în `AR · tracking`, diorama se
+  ancorează și marcajele se aliniază, fără erori în consolă. **Netestat:** pe un telefon real, cu harta
+  tipărită (lumină, unghi, hârtie, performanță reală).
+- Camera pe telefon cere HTTPS (sau `localhost`): `npm run dev:https`, apoi accepți certificatul
+  autosemnat. Pe Android, `adb reverse tcp:5173 tcp:5173` face `localhost` accesibil fără certificat.
+
+## Asset-uri
+
+Tot ce se vede acum este **placeholder procedural**, fără surse protejate de drepturi de autor:
+harta (desenată pe canvas din pozițiile zonelor), mascotele (primitive low-poly), reperele, recuzita.
+Registrul `src/content/assets.ts` listează cheile pentru harta finală și pentru cele cinci mascote.
+Când pui fișierul în `public/assets/illustrations/...` și treci intrarea pe `status: 'ready'`,
+placeholder-ul este înlocuit automat (harta ca textură a dioramei, mascotele ca sprite-uri).
+Pozițiile zonelor (`zone.mapPosition`) se re-măsoară după harta finală. Detalii în
+`public/assets/illustrations/README.md`.
+
+## Performanță
+
+- Totul se alocă o singură dată; nivelurile de calitate (`high`/`medium`/`low`) schimbă doar cât se
+  desenează: pixel ratio, numărul de copaci (instanțiați), particule, umbre, emițătoare de zonă.
+- Nivelul inițial vine din `hardwareConcurrency`, `deviceMemory` și tipul de pointer. Un guvernator
+  urmărește timpul de cadru și coboară un nivel dacă media depășește ~27 ms. Doar în jos, ca imaginea să
+  nu pâlpâie în mijlocul demonstrației.
+- Copacii din fața scenei active se retrag în scenă și revin pe hartă.
+- Bucla de randare se oprește când tabul e ascuns (rAF). Resursele Three.js sunt eliberate la `dispose()`.
+- WebGL indisponibil: scenele, subtitrările și controalele continuă să funcționeze, cu un mesaj.
+
+## Accesibilitate
+
+- `prefers-reduced-motion`: fără legănare de cameră, cu tăieturi în loc de zboruri, particule și bucle
+  oprite, fără animații CSS decorative. Informația rămâne (bara de progres și subtitrările).
+- Toate replicile au subtitrări (`role="status"`, `aria-live="polite"`); narațiunea despre parc se
+  distinge de vocea mascotei. Sunetul este opțional și nu poartă informație.
+- Marcajele zonelor sunt butoane reale, cu etichete (`Open Skats: Sight, Hornet Garden. Asleep.`), în
+  ordine de tab, cu focus vizibil. Panoul de prezentator se folosește complet de la tastatură.
+- Culori din paleta LVM; text pe fundaluri închise opace/semi-opace, peste 7:1.
+
+## Presupuneri (de confirmat)
+
+Conținutul celor cinci zone urmează brief-ul întocmai. Ce urmează este scris pentru preview și marcat
+`ASSUMPTION` în cod:
+
+| Presupunere | Unde |
+|---|---|
+| Formularea tuturor replicilor mascotelor și a naratorului (fără activități noi) | `guardians.ts`, `pitchScript.ts` |
+| Momentele vizuale memorabile (ornament care strălucește, inele sonore, colier, spirală de arome, amprentă) | `rewardVisual`, `three/activities.ts` |
+| Culorile gardienilor, în afară de auriul brandului la Skats | `guardians.ts` |
+| Pozițiile zonelor pe hartă și forma potecii | `zone.mapPosition`, `textures.ts` |
+| Mascotele placeholder (băiat al pădurii cu coroană de frunze, câte un detaliu per simț) | `three/Mascot.ts` |
+| Tagline „Atklāj · Pēti · Sajūti", citit de pe panoul din ilustrația Figma | `content/brand.ts` |
+| Numele letone ale zonelor vin de pe atputa.lvm.lv; „Green Classroom" nu are nume leton publicat | `guardians.ts` |
+| Finala: text, durată (24 s) și faptul că arată mereu toți cei cinci gardieni | `pitchScript.ts` |
+| Revenire automată pe hartă la sfârșitul unei scene | `AttractionScene.tsx` |
+| Interfața în engleză (o singură limbă, fără sistem de localizare) | tot `src/` |
+
+## Teste
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+```
+
+- Conținut: toți gardienii au câmpurile, scenele au 20–40 s, cue-urile sunt complete, siguranța la
+  Taste, fiecare cheie de asset are implementare.
+- Stare: tranziții, `next`/`prev` inverse, restart, determinism, fallback AR.
+- Flux integrat (jsdom, cu un `Stage` fals): Magic Mode complet până la finală, controale de
+  prezentator, scurtături, mesaje AR și recuperare.
+- 3D fără WebGL: toate vizualurile rulează pe toată durata scenei, cu și fără mișcare, fără NaN.
+- AR: adaptorul Mock și căile de cădere ale MindAR.
+
+Verificarea vizuală (capturi în Chromium cu WebGL software) este descrisă în `docs/test-checklist.md`.
+Testarea pe un telefon real rămâne manuală.
