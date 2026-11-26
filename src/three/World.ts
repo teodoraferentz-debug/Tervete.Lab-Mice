@@ -1,7 +1,6 @@
 import {
   AdditiveBlending,
   Box3,
-  type Camera,
   BufferAttribute,
   BoxGeometry,
   BufferGeometry,
@@ -41,10 +40,11 @@ import { SensesTree } from './SensesTree';
 import { loadTerrain, Terrain } from './terrain';
 import { beamTexture, glowTexture, MAP_D, MAP_W, placeholderMapTexture } from './textures';
 import { mulberry32 } from './util';
-import { coreCenter, tablePoint, VR_STAGE_POSITION, VR_STAGE_SCALE, VR_MAP_SCALE } from '../vr/layout';
-import { artKeysOf, compositionFor } from './story/compositions';
-import { preloadArt } from './story/art';
-import { StoryScene } from './story/StoryScene';
+import { coreCenter, tablePoint, VR_MAP_SCALE } from '../vr/layout';
+import { ForestEnvironment } from './forest/ForestEnvironment';
+import { ForestScene } from './forest/ForestScene';
+import { InteractionManager, type PointerFrame } from './forest/interaction';
+import type { SceneCtx, SoundKind } from './forest/types';
 import { ZoneRig } from './ZoneRig';
 
 const MAX_TREES = 260;
@@ -53,6 +53,8 @@ const MAX_AMBIENT = 170;
 const FINALE_UV = { u: 0.4, v: 0.43 };
 const SURFACE_SEGMENTS = { x: 192, y: 138 };
 const FRAME_TOP = -0.13;
+/** In AR the scene is a miniature standing on the map: this much of life size. */
+const AR_SCENE_SCALE = 0.34;
 
 export type WorldMode = 'map' | 'attraction' | 'finale';
 
@@ -70,9 +72,16 @@ export class World {
   readonly root = new Group();
   /** The map table (relief, forest, zones, finale tree). Hidden while a story scene fills the screen. */
   readonly diorama = new Group();
-  private readonly stories = new Map<GuardianId, StoryScene>();
-  private activeStory: StoryScene | null = null;
-  private readonly storyDeps: { glow: Texture; beam: Texture };
+  /** The forest clearing and the guardian's stage: real 3D, placed per mode (see placeForest). */
+  readonly forestRoot = new Group();
+  readonly forest = new ForestEnvironment();
+  /** Pointing and grabbing for whatever scene is playing. */
+  readonly interaction = new InteractionManager();
+  private readonly scenes = new Map<GuardianId, ForestScene>();
+  private activeScene: ForestScene | null = null;
+  private readonly sceneCtx: SceneCtx;
+  private readonly mapLights = new Group();
+  private forestShown = false;
   readonly zones = new Map<GuardianId, ZoneRig>();
   private readonly tree: SensesTree;
   private readonly textures: Texture[] = [];
@@ -108,11 +117,16 @@ export class World {
   /** Where the headset's player stands and which way they face when the session starts. */
   private readonly vrOrigin = new Vector3();
   private vrYaw = 0;
+  private vrFloorY = 0;
   /** How many trees were actually placed (placement can reject candidates). */
   private treeCap = MAX_TREES;
 
   /** Called once when a guardian's memorable moment starts. */
   onMoment: ((id: GuardianId | 'finale') => void) | null = null;
+  /** Sounds the interactive scenes ask for (the app plays them). */
+  onSound: ((kind: SoundKind, index?: number) => void) | null = null;
+  /** The clearing was shown or hidden (the stage sets fog and background to match). */
+  onForest: ((shown: boolean) => void) | null = null;
 
   constructor() {
     const glow = glowTexture();
@@ -120,7 +134,8 @@ export class World {
     this.textures.push(glow, beam);
 
     // Light: low golden sun through the pines + soft sky fill
-    this.root.add(new HemisphereLight('#fff0c8', '#1f3a2c', 1.25));
+    this.mapLights.add(new HemisphereLight('#fff0c8', '#1f3a2c', 1.25));
+    this.root.add(this.mapLights);
     this.sun = new DirectionalLight('#ffd68a', 2.3);
     this.sun.position.set(-3.5, 7, 4.5);
     this.sun.castShadow = false;
@@ -245,8 +260,15 @@ export class World {
     this.tree.layout(this.finaleCenter);
     this.diorama.add(this.tree.group);
     this.root.add(this.diorama);
-    this.storyDeps = { glow, beam };
-    void this.prepareStories();
+    this.sceneCtx = { glow, beam, interaction: this.interaction, sound: (kind, index) => this.onSound?.(kind, index) };
+    this.forestRoot.add(this.forest.group);
+    this.forestRoot.visible = false;
+    this.root.add(this.forestRoot);
+  }
+
+  /** Loads the clearing's sky and models; resolves to the sky (for the image-based lighting) or null. */
+  loadForest(): ReturnType<ForestEnvironment['load']> {
+    return this.forest.load();
   }
 
   /** AR places the diorama on the printed map: no table frame or floor shadow there. */
@@ -262,17 +284,18 @@ export class World {
     this.vr = on;
     this.shadowBlob.visible = !on && !this.external;
     this.sun.castShadow = !on && !this.external && this.shadowsWanted;
-    if (!on) this.activeStory?.placeScreen();
     this.applyVrPlacement();
+    this.syncForest();
   }
 
   /**
    * Runtimes disagree on where the "local" origin is (at the head, or on the floor), so VR content is
    * anchored to the head's actual position and heading, read on the first frame of the session.
    */
-  setVrAnchor(origin: Vector3, yaw: number): void {
+  setVrAnchor(origin: Vector3, yaw: number, floorY: number): void {
     this.vrOrigin.copy(origin);
     this.vrYaw = yaw;
+    this.vrFloorY = floorY;
     this.applyVrPlacement();
   }
 
@@ -286,6 +309,7 @@ export class World {
   }
 
   private applyVrPlacement(): void {
+    this.placeForest();
     if (!this.vr) {
       this.diorama.scale.setScalar(1);
       this.diorama.position.set(0, 0, 0);
@@ -297,7 +321,27 @@ export class World {
     this.diorama.scale.setScalar(VR_MAP_SCALE);
     this.diorama.position.copy(this.vrPoint(origin));
     this.diorama.rotation.set(0, this.vrYaw, 0);
-    this.activeStory?.placeVr(this.vrPoint(VR_STAGE_POSITION), VR_STAGE_SCALE, this.vrYaw);
+  }
+
+  /**
+   * Where the clearing and the scene stand: at the origin for the screen (the camera looks along -Z), on the
+   * floor where the player stands in a headset, and as a miniature above the printed map in AR.
+   */
+  private placeForest(zone?: Vector3): void {
+    const r = this.forestRoot;
+    if (this.vr) {
+      r.position.set(this.vrOrigin.x, this.vrFloorY, this.vrOrigin.z);
+      r.rotation.set(0, this.vrYaw, 0);
+      r.scale.setScalar(1);
+    } else if (this.external) {
+      r.position.copy(zone ?? r.position);
+      r.rotation.set(0, 0, 0);
+      r.scale.setScalar(AR_SCENE_SCALE);
+    } else {
+      r.position.set(0, 0, 0);
+      r.rotation.set(0, 0, 0);
+      r.scale.setScalar(1);
+    }
   }
 
   setQuality(tier: QualityTier): void {
@@ -309,6 +353,7 @@ export class World {
     this.shadowsWanted = tier.shadows;
     this.sun.castShadow = !this.external && !this.vr && tier.shadows;
     this.zones.forEach((z) => z.setEmitters(tier.zoneEmitters));
+    this.forest.setQuality(tier);
   }
 
   get shadowsEnabled(): boolean {
@@ -336,42 +381,41 @@ export class World {
     this.clearTreesIn(null);
     this.playing = null;
     this.tree.setVisible(false);
-    this.leaveStory();
+    this.leaveScene();
     this.zones.forEach((z, id) => z.setLit(visited.includes(id), instant));
     if (justActivated) this.zones.get(justActivated)?.triggerActivation();
   }
 
   /**
-   * An attraction is a cinematic story scene (layered illustration), not a part of the 3D map.
-   * Magic Mode: it fills the screen and the map table is hidden. AR: it floats above the printed map as a
-   * pop-up that faces the viewer, with the map still visible below.
+   * An attraction is a real 3D scene (a clearing, a table, props you can point at and pick up). Magic Mode:
+   * it fills the screen and the map table is hidden. Headset: it surrounds the player at life size. AR: a
+   * miniature stands on the printed map with the map still visible around it.
    */
   playAttraction(guardian: Guardian, clock: SceneClock): void {
     this.mode = 'attraction';
     this.tree.setVisible(false);
     this.playing = { guardian, data: { clock, cues: cueTimes(guardian.pitchBeats), beats: guardian.pitchBeats } };
-    const story = this.storyFor(guardian);
-    this.leaveStory();
-    this.activeStory = story;
-    story.group.visible = true;
-    if (this.vr) {
-      story.placeVr(this.vrPoint(VR_STAGE_POSITION), VR_STAGE_SCALE, this.vrYaw);
-      this.diorama.visible = false;
-    } else if (this.external) {
+    this.leaveScene();
+    const scene = this.sceneFor(guardian);
+    this.activeScene = scene;
+    scene.group.visible = true;
+    scene.start();
+    if (this.external) {
       const zone = this.zones.get(guardian.id);
-      story.placePopup((zone?.worldPosition ?? new Vector3()).clone().add(new Vector3(0, 1.5, 0)));
       this.diorama.visible = true;
+      this.placeForest((zone?.worldPosition ?? new Vector3()).clone());
     } else {
-      story.placeScreen();
       this.diorama.visible = false;
+      this.placeForest();
     }
+    this.syncForest();
     this.lastT = -1;
   }
 
   playFinale(clock: SceneClock): void {
     this.mode = 'finale';
     this.clearTreesIn(this.finaleBox().expandByScalar(0.3));
-    this.leaveStory();
+    this.leaveScene();
     this.tree.setVisible(true);
     this.playing = { guardian: null, data: { clock, cues: cueTimes(PITCH.finale.beats), beats: PITCH.finale.beats } };
     this.zones.forEach((z) => z.setLit(true));
@@ -405,7 +449,7 @@ export class World {
 
   private lastT = -1;
 
-  update(dt: number, time: number, motion: number, camera: Camera | null = null): void {
+  update(dt: number, time: number, motion: number, frames: readonly PointerFrame[] = []): void {
     // Ambient motes
     const pos = this.ambient.geometry.getAttribute('position') as BufferAttribute;
     const n = (this.ambient.geometry.drawRange.count === Infinity ? MAX_AMBIENT : this.ambient.geometry.drawRange.count) | 0;
@@ -436,41 +480,44 @@ export class World {
     }
     this.lastT = t;
 
-    if (this.mode === 'attraction' && this.activeStory) {
-      this.activeStory.update(t, cues, time, motion, playing.data.clock.duration, camera);
+    if (this.mode === 'attraction' && this.activeScene) {
+      this.activeScene.update(t, cues, time, motion, frames);
     } else if (this.mode === 'finale') {
       this.tree.update(t, cues, time, motion);
     }
   }
 
-  private storyFor(guardian: Guardian): StoryScene {
-    let story = this.stories.get(guardian.id);
-    if (!story) {
-      story = new StoryScene(guardian, compositionFor(guardian.id), this.storyDeps.glow, this.storyDeps.beam);
-      story.group.visible = false;
-      this.root.add(story.group);
-      this.stories.set(guardian.id, story);
-      void story.load();
+  private sceneFor(guardian: Guardian): ForestScene {
+    let scene = this.scenes.get(guardian.id);
+    if (!scene) {
+      scene = new ForestScene(guardian, this.sceneCtx);
+      this.forestRoot.add(scene.group);
+      this.scenes.set(guardian.id, scene);
     }
-    return story;
+    return scene;
   }
 
-  private leaveStory(): void {
-    if (this.activeStory) this.activeStory.group.visible = false;
-    this.activeStory = null;
+  private leaveScene(): void {
+    if (this.activeScene) {
+      this.activeScene.stop();
+      this.activeScene.group.visible = false;
+    }
+    this.activeScene = null;
     this.diorama.visible = true;
+    this.syncForest();
   }
 
-  /** Tells the active story how big the view is (fov/aspect), so cover layers fill it exactly. */
-  setStoryView(fovDeg: number, aspect: number): void {
-    this.activeStory?.setView(fovDeg, aspect, this.vr ? 'vr' : this.external ? 'popup' : 'screen');
-  }
-
-  /** Warms the art cache in the background so the first scene starts instantly. */
-  private async prepareStories(): Promise<void> {
-    const keys = new Set<string>(['vignette', 'mascot-default']);
-    for (const g of GUARDIANS) artKeysOf(compositionFor(g.id)).forEach((k) => keys.add(k));
-    await preloadArt([...keys]);
+  /** Shows the clearing when it is the setting (screen scene, or anywhere in a headset); lights follow the map. */
+  private syncForest(): void {
+    const scene = this.mode === 'attraction';
+    const shown = this.vr || (scene && !this.external);
+    this.forest.setDressing(shown);
+    this.forestRoot.visible = shown || (scene && this.external);
+    this.mapLights.visible = this.diorama.visible;
+    if (shown !== this.forestShown) {
+      this.forestShown = shown;
+      this.onForest?.(shown);
+    }
   }
 
   private animateTrees(dt: number, motion: number): void {
@@ -495,6 +542,9 @@ export class World {
   }
 
   dispose(): void {
+    this.scenes.forEach((sc) => sc.dispose());
+    this.forest.dispose();
+    this.interaction.dispose();
     disposeTree(this.root);
     this.textures.forEach((t) => t.dispose());
     this.zones.forEach((z) => z.dispose());

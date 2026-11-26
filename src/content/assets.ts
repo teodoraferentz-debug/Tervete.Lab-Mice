@@ -19,7 +19,8 @@ export interface AssetEntry {
 }
 
 /** Asset URLs follow Vite's `base`, so the app also works when it is not served from the site root. */
-const url = (path: string): string => `${import.meta.env.BASE_URL}assets/${path}`;
+export const assetUrl = (path: string): string => `${import.meta.env.BASE_URL}assets/${path}`;
+const url = assetUrl;
 
 export const ASSETS: Record<string, AssetEntry> = {
   // Ground texture of the diorama. Interim: the park's official map poster (LVM, 2577 × 1851 px) until the

@@ -61,6 +61,87 @@ export class AudioEngine {
     });
   }
 
+  /** Sounds of the things you touch in a scene (all generated, nothing to license). */
+  play(kind: 'pick' | 'drop' | 'tick' | 'note' | 'chirp' | 'rustle' | 'whoosh' | 'chime' | 'knock', index = 0): void {
+    switch (kind) {
+      case 'chime':
+        this.chime(index);
+        break;
+      case 'chirp':
+        this.chirp();
+        break;
+      case 'note': {
+        // a wooden bar: a clear tone with a short, bright overtone
+        const scale = [523.25, 587.33, 659.25, 783.99, 880, 1046.5, 1174.66, 1318.5];
+        const f = scale[((index % 8) + 8) % 8] ?? 523.25;
+        this.blip('sine', f, f, 0.9, 0.2);
+        this.blip('triangle', f * 4, f * 4, 0.12, 0.05);
+        break;
+      }
+      case 'knock':
+        this.blip('triangle', 340, 190, 0.1, 0.22);
+        this.blip('square', 900, 500, 0.03, 0.04);
+        break;
+      case 'tick':
+        this.blip('triangle', 1200, 900, 0.05, 0.08);
+        break;
+      case 'pick':
+        this.blip('sine', 520, 720, 0.08, 0.1);
+        break;
+      case 'drop':
+        this.blip('sine', 320, 190, 0.11, 0.14);
+        break;
+      case 'rustle':
+        this.noise(0.7, 'highpass', 2200, 3600, 0.09);
+        break;
+      case 'whoosh':
+        this.noise(1.1, 'bandpass', 300, 1400, 0.12);
+        break;
+    }
+  }
+
+  private blip(type: OscillatorType, f0: number, f1: number, dur: number, gain: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || this.muted) return;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    const t0 = ctx.currentTime;
+    osc.type = type;
+    osc.frequency.setValueAtTime(f0, t0);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    osc.connect(g).connect(master);
+    osc.start(t0);
+    osc.stop(t0 + dur + 0.02);
+  }
+
+  private noise(dur: number, filter: BiquadFilterType, f0: number, f1: number, gain: number): void {
+    const ctx = this.ctx;
+    const master = this.master;
+    if (!ctx || !master || this.muted) return;
+    const len = Math.floor(ctx.sampleRate * dur);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const f = ctx.createBiquadFilter();
+    f.type = filter;
+    const t0 = ctx.currentTime;
+    f.frequency.setValueAtTime(f0, t0);
+    f.frequency.exponentialRampToValueAtTime(f1, t0 + dur * 0.5);
+    f.frequency.exponentialRampToValueAtTime(f0, t0 + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(gain, t0 + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f).connect(g).connect(master);
+    src.start(t0);
+  }
+
   dispose(): void {
     if (this.birdTimer) clearTimeout(this.birdTimer);
     this.birdTimer = null;

@@ -15,7 +15,7 @@ import { PresenterControls } from '../presentation/PresenterControls';
 import { AttractionScene } from '../scenes/AttractionScene';
 import { FinaleScene } from '../scenes/FinaleScene';
 import { MapScene } from '../scenes/MapScene';
-import { Stage } from '../three/Stage';
+import { Stage, type StageOptions } from '../three/Stage';
 import type { StageApi } from '../three/StageApi';
 import { useExperience, useReducedMotion, useVrAvailable } from './hooks';
 import { useArSession } from './useArSession';
@@ -66,6 +66,8 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
   const onActivate = useCallback((id: (typeof GUARDIAN_IDS)[number]) => audio.chime(GUARDIAN_IDS.indexOf(id)), [audio]);
   const onMoment = useCallback((id: (typeof GUARDIAN_IDS)[number] | 'finale') => audio.chime(id === 'finale' ? 5 : GUARDIAN_IDS.indexOf(id)), [audio]);
 
+  const onSound = useCallback<NonNullable<StageOptions['onSound']>>((kind, index) => audio.play(kind, index), [audio]);
+
   // Entering a headset needs the browser's permission prompt, so it starts straight from the button press.
   const enterVr = useCallback(async () => {
     audio.start();
@@ -94,6 +96,7 @@ export function App({ stageFactory = defaultStageFactory, arFactory = createArAd
       onActivate={onActivate}
       onMoment={onMoment}
       onVrEnd={controller.vrEnded}
+      onSound={onSound}
       arLayerRef={arLayerRef}
       onStage={setStage}
       cameraVisible={cameraVisible}

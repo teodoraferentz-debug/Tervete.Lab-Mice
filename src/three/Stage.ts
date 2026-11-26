@@ -1,9 +1,11 @@
 import {
-  Color,
   PCFSoftShadowMap,
   PerspectiveCamera,
+  PMREMGenerator,
   Quaternion,
+  Raycaster,
   Scene,
+  Vector2,
   Vector3,
   WebGLRenderer,
   type Camera,
@@ -14,7 +16,9 @@ import { PITCH } from '../content/pitchScript';
 import type { SceneClock } from '../experience/SceneClock';
 import { fitView, type ViewGoal } from './cameraRig';
 import { initialQuality, QualityGovernor, stepDown, TIERS, type QualityName } from './quality';
-import { LOOK_Y, STAGE_DISTANCE } from './story/StoryScene';
+import { TABLE } from './forest/propKit';
+import type { PointerFrame, PointerSource } from './forest/interaction';
+import type { SoundKind } from './forest/types';
 import { MAP_W } from './textures';
 import type { ScreenPoint, StageApi } from './StageApi';
 import { VR_FOVEATION, VR_RESOLUTION_SCALE } from '../vr/layout';
@@ -24,7 +28,8 @@ import { World } from './World';
 
 export type { ScreenPoint };
 
-const HALF_STAGE_H = 4.5;
+/** Vertical field of view of the screen camera for a scene (the clearing is framed for it). */
+const SCENE_FOV = 50;
 
 export interface StageOptions {
   reducedMotion: boolean;
@@ -35,6 +40,8 @@ export interface StageOptions {
   onQualityChange?: (name: QualityName) => void;
   /** The headset session ended (headset off, system menu, or the in-VR Exit button). */
   onVrEnd?: () => void;
+  /** An interaction made a sound (a bar struck, a leaf picked up). The app plays it. */
+  onSound?: (kind: SoundKind, index?: number) => void;
 }
 
 type FrameListener = () => void;
@@ -78,6 +85,10 @@ export class Stage implements StageApi {
   private qualityBeforeVr: QualityName = 'medium';
   private vrAnchored = false;
   private vrFrames = 0;
+  /** True when the headset's reference space has its origin on the floor (local-floor). */
+  private vrFloor = false;
+  private readonly mouse = { ndc: new Vector2(), down: false, present: false };
+  private readonly caster = new Raycaster();
   /** What is playing now (a story scene or the finale), for the headset's captions. */
   private playback: Playback | null = null;
 
@@ -90,6 +101,9 @@ export class Stage implements StageApi {
     this.world = new World();
     this.internalScene.add(this.world.root);
     this.world.onMoment = (id) => opts.onMoment?.(id);
+    this.world.onSound = (kind, index) => opts.onSound?.(kind, index);
+    this.world.onForest = (shown) => this.onForest(shown);
+    this.world.interaction.onHaptic = (id, strength, ms) => this.vr?.haptic(id, strength, ms);
 
     try {
       const renderer = new WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -103,6 +117,17 @@ export class Stage implements StageApi {
       console.warn('[stage] WebGL is not available:', error);
     }
     this.webgl = this.renderer !== null;
+    if (this.renderer) {
+      this.listenToMouse(this.renderer.domElement);
+      void this.world.loadForest().then((sky) => {
+        // Image-based lighting from the same photographed forest the sky shows.
+        if (!sky || !this.renderer || this.disposed) return;
+        const pmrem = new PMREMGenerator(this.renderer);
+        this.internalScene.environment = pmrem.fromEquirectangular(sky).texture;
+        this.internalScene.environmentIntensity = 0.75;
+        pmrem.dispose();
+      });
+    }
 
     this.applyQuality(this.quality);
     this.resize();
@@ -131,9 +156,8 @@ export class Stage implements StageApi {
     this.clock = clock;
     this.playback = { guardian, clock, beats: guardian.pitchBeats };
     this.world.playAttraction(guardian, clock);
-    // The story scene is authored for a fixed camera on its axis; only parallax moves it (see tick()).
+    // The scene has its own camera (tick()): a slow, gentle drift over the table.
     this.snapNext = true;
-    this.setView(() => ({ position: new Vector3(0, 0, STAGE_DISTANCE), target: new Vector3(0, 0, 0) }));
     this.applyFov();
   }
 
@@ -161,9 +185,12 @@ export class Stage implements StageApi {
     const renderer = this.renderer;
     const xr = (navigator as Navigator & { xr?: XRSystem }).xr;
     if (!renderer || !xr || this.vr || this.host || this.disposed) throw new Error('VR is not available');
-    const session = await xr.requestSession('immersive-vr', { optionalFeatures: ['local'] });
+    const session = await xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'local'] });
+    // 'local-floor' puts the origin on the real floor, so the table stands at a real table height.
+    const features = (session as XRSession & { enabledFeatures?: string[] }).enabledFeatures;
+    this.vrFloor = !!features?.includes('local-floor');
     renderer.xr.enabled = true;
-    renderer.xr.setReferenceSpaceType('local');
+    renderer.xr.setReferenceSpaceType(this.vrFloor ? 'local-floor' : 'local');
     renderer.xr.setFramebufferScaleFactor(VR_RESOLUTION_SCALE);
     renderer.xr.setFoveation(VR_FOVEATION);
     await renderer.xr.setSession(session);
@@ -175,7 +202,6 @@ export class Stage implements StageApi {
     this.qualityBeforeVr = this.quality;
     this.applyQuality('low'); // Quest 1 is a 2019 phone-class GPU
     this.world.setVr(true);
-    this.internalScene.background = new Color('#07271b');
     this.vr = new VrRig({
       renderer,
       scene: this.internalScene,
@@ -201,8 +227,11 @@ export class Stage implements StageApi {
     const forward = new Vector3(0, 0, -1).applyQuaternion(cam.getWorldQuaternion(new Quaternion()));
     forward.y = 0;
     const yaw = forward.lengthSq() < 1e-6 ? 0 : Math.atan2(-forward.x, -forward.z);
-    this.world.setVrAnchor(origin, yaw);
-    this.vr.setAnchor(origin, yaw);
+    // Without a floor reference, assume a standing eye height of 1.6 m (works the same seated: the table is just lower).
+    // (A runtime that claims a floor but reports the head near the floor, such as an emulator, gets the same estimate.)
+    const floorY = this.vrFloor && origin.y > 0.9 ? 0 : origin.y - 1.6;
+    this.world.setVrAnchor(origin, yaw, floorY);
+    this.vr.setAnchor(origin, yaw, floorY);
     this.vrAnchored = true;
   }
 
@@ -220,7 +249,6 @@ export class Stage implements StageApi {
     }
     this.vr?.dispose();
     this.vr = null;
-    this.internalScene.background = null;
     this.world.setVr(false);
     this.applyQuality(this.qualityBeforeVr);
     this.running = false;
@@ -352,20 +380,74 @@ export class Stage implements StageApi {
     this.opts.onQualityChange?.(name);
   }
 
-  /**
-   * Map and finale use a fixed lens. A story scene picks its lens so the central 10 units of the 16 × 9
-   * stage always fit: on a phone in portrait the composition shows its middle, on a projector the whole.
-   */
+  /** Map and finale use a fixed lens; a scene uses a natural 50° lens and backs the camera off to fit narrow screens. */
   private applyFov(): void {
     const aspect = this.camera.aspect;
-    if (this.world.mode === 'attraction') {
-      const halfH = Math.max(HALF_STAGE_H, 5.2 / aspect);
-      this.camera.fov = (2 * Math.atan(halfH / STAGE_DISTANCE) * 180) / Math.PI;
-    } else {
-      this.camera.fov = aspect < 0.85 ? 46 : 38;
-    }
+    this.camera.fov = this.world.mode === 'attraction' ? SCENE_FOV : aspect < 0.85 ? 46 : 38;
     this.camera.updateProjectionMatrix();
-    this.world.setStoryView(this.camera.fov, aspect);
+  }
+
+  /**
+   * The screen camera for a scene: eye height, looking down at the table, a slow drift and a gentle push-in
+   * over the scene. On a narrow screen it backs off so the table still fits.
+   */
+  private sceneCamera(): void {
+    const m = this.motion;
+    const dur = this.clock?.duration ?? 30;
+    const progress = this.clock ? this.clock.time / dur : 0;
+    const half = Math.tan((SCENE_FOV * Math.PI) / 360);
+    const dist = Math.min(4.6, Math.max(2.7, 2.5 / (half * this.camera.aspect))) * (1 - 0.07 * progress * m);
+    this.camera.position.set(0.2 + Math.sin(this.time * 0.15) * 0.1 * m, 1.72 + Math.sin(this.time * 0.11) * 0.03 * m, TABLE.z - 0.15 + dist);
+    this.camera.lookAt(0.3, 0.9, TABLE.z - 0.1);
+    this.pos.copy(this.camera.position);
+  }
+
+  private onForest(shown: boolean): void {
+    if (shown) this.world.forest.applyTo(this.internalScene);
+    else {
+      this.internalScene.fog = null;
+      this.internalScene.background = null;
+    }
+  }
+
+  // ── pointing ──────────────────────────────────────────────────────────────
+
+  private listenToMouse(el: HTMLElement): void {
+    const set = (e: PointerEvent): void => {
+      const r = el.getBoundingClientRect();
+      this.mouse.ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
+      this.mouse.present = true;
+    };
+    el.addEventListener('pointermove', set);
+    el.addEventListener('pointerdown', (e) => {
+      set(e);
+      this.mouse.down = true;
+      el.setPointerCapture?.(e.pointerId);
+    });
+    const up = (e: PointerEvent): void => {
+      this.mouse.down = false;
+      if (e.pointerType !== 'mouse') this.mouse.present = false;
+    };
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('pointerleave', () => {
+      if (!this.mouse.down) this.mouse.present = false;
+    });
+  }
+
+  private pointer(dt: number): PointerFrame[] {
+    const interaction = this.world.interaction;
+    if (this.vr) return this.vr.point(dt, interaction);
+    const sources: PointerSource[] = [];
+    if (!this.host && this.world.mode === 'attraction' && (this.mouse.present || this.mouse.down)) {
+      this.camera.updateMatrixWorld(true);
+      this.caster.setFromCamera(this.mouse.ndc, this.camera);
+      sources.push({ id: 0, origin: this.caster.ray.origin.clone(), direction: this.caster.ray.direction.clone(), down: this.mouse.down });
+    }
+    const frames = interaction.update(dt, sources);
+    const canvas = this.renderer?.domElement;
+    if (canvas) canvas.style.cursor = frames[0]?.holding ? 'grabbing' : frames[0]?.hovered ? 'pointer' : '';
+    return frames;
   }
 
   private resize(): void {
@@ -419,22 +501,14 @@ export class Stage implements StageApi {
     this.time += dt;
 
     this.clock?.tick(Math.min(0.5, elapsed));
-    this.world.update(dt, this.time, this.motion, this.host?.camera ?? this.camera);
 
     // The head pose is only valid once a few frames have been rendered, so anchor on the third.
     if (this.vr && !this.vrAnchored && ++this.vrFrames >= 3) this.anchorVr();
-    this.vr?.update(dt, this.time);
 
     if (this.vr) {
       // The headset owns the camera: never move it (that would make the player sick).
     } else if (!this.host && this.world.mode === 'attraction') {
-      // Cinematic camera: a slow drift for parallax and a gentle push-in across the scene.
-      const dur = this.clock?.duration ?? 30;
-      const progress = this.clock ? this.clock.time / dur : 0;
-      const m = this.motion;
-      this.camera.position.set(Math.sin(this.time * 0.17) * 0.5 * m, LOOK_Y + Math.sin(this.time * 0.13) * 0.14 * m, STAGE_DISTANCE - 1.1 * progress * m);
-      this.camera.lookAt(0, LOOK_Y, 0);
-      this.pos.copy(this.camera.position);
+      this.sceneCamera();
     } else if (!this.host && this.goal) {
       const k = this.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.6);
       this.pos.lerp(this.goal.position, k);
@@ -447,6 +521,11 @@ export class Stage implements StageApi {
       }
       this.camera.lookAt(this.look);
     }
+
+    // Pointing: the headset's controllers, or the mouse / a finger on the screen
+    const frames = this.pointer(dt);
+    this.world.update(dt, this.time, this.motion, frames);
+    this.vr?.update(dt, this.time);
 
     const renderer = this.host?.renderer ?? this.renderer;
     const scene = this.host?.scene ?? this.internalScene;

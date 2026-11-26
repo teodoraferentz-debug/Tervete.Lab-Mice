@@ -1,7 +1,6 @@
 import {
   BufferGeometry,
   CanvasTexture,
-  CircleGeometry,
   CylinderGeometry,
   Float32BufferAttribute,
   Group,
@@ -9,7 +8,6 @@ import {
   LineBasicMaterial,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   Quaternion,
   Raycaster,
@@ -27,7 +25,10 @@ import { PITCH } from '../content/pitchScript';
 import type { SceneClock } from '../experience/SceneClock';
 import { allVisited } from '../experience/sceneState';
 import { activeCaption, activePrompt } from '../experience/timeline';
+import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
 import { mapLine } from '../scenes/mapLine';
+import type { InteractionManager, PointerFrame, PointerSource } from '../three/forest/interaction';
+import { planks } from '../three/forest/propKit';
 import type { World } from '../three/World';
 import { CanvasPanel, FONTS, wrapLines, type PanelButton } from './CanvasPanel';
 import { tablePoint, VR_MAP_POSITION } from './layout';
@@ -86,10 +87,21 @@ export class VrRig {
   private readonly menu = new CanvasPanel(0.56, 0.8, 560, 800);
   private readonly pedestal = new Group();
   private readonly zoneProxies: Array<{ id: GuardianId; hit: Mesh; label: Sprite; texture: CanvasTexture; key: string }> = [];
-  private readonly controllers: Array<{ ray: Group; line: Line; dot: Mesh; hover: Hover | null }> = [];
+  private readonly controllers: Array<{
+    ray: Group;
+    line: Line;
+    dot: Mesh;
+    hover: Hover | null;
+    down: boolean;
+    connected: boolean;
+    source: XRInputSource | null;
+  }> = [];
+  private readonly column: Mesh;
+  private readonly base: Mesh;
   private readonly padState = new Map<string, boolean>();
   private layout: Layout | null = null;
   private menuOpen = false;
+  private onMapNow = true;
   private confirmRestartUntil = 0;
   private now = 0;
   private readonly cleanups: Array<() => void> = [];
@@ -97,17 +109,13 @@ export class VrRig {
   constructor(private readonly deps: VrRigDeps) {
     const { renderer, world } = deps;
 
-    // A dark floor and a plain pedestal under the map: grounding only (no characters, no props).
-    const floor = new Mesh(new CircleGeometry(3.2, 48), new MeshBasicMaterial({ color: '#0a2a1c' }));
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.y = -1.5;
-    this.group.add(floor);
-    const wood = new MeshStandardMaterial({ color: '#5e3b22', roughness: 0.9 });
-    const column = new Mesh(new CylinderGeometry(0.34, 0.5, 0.62, 20), wood);
-    column.position.set(VR_MAP_POSITION.x, VR_MAP_POSITION.y - 0.41, VR_MAP_POSITION.z);
-    const base = new Mesh(new CylinderGeometry(0.85, 0.95, 0.06, 28), wood);
-    base.position.set(VR_MAP_POSITION.x, -1.47, VR_MAP_POSITION.z);
-    this.pedestal.add(column, base);
+    // The map stands on a round wooden table in the clearing (its height follows the real floor, see setAnchor).
+    const wood = planks('#d9c3a8', 0.8, 2);
+    this.column = new Mesh(new CylinderGeometry(0.34, 0.46, 1, 20), wood);
+    this.base = new Mesh(new CylinderGeometry(0.85, 0.95, 0.06, 28), wood);
+    this.column.position.x = this.base.position.x = VR_MAP_POSITION.x;
+    this.column.position.z = this.base.position.z = VR_MAP_POSITION.z;
+    this.pedestal.add(this.column, this.base);
     this.group.add(this.pedestal);
 
     for (const p of [this.caption, this.prompt, this.title, this.note, this.awaken, this.menu]) this.group.add(p.mesh);
@@ -137,7 +145,8 @@ export class VrRig {
       this.zoneProxies.push({ id: g.id, hit, label, texture, key: '' });
     }
 
-    // Controllers: a ray and a dot where it lands. `select` (trigger) activates what is pointed at.
+    // Controllers: the real controller model, a ray and a dot where it lands. The trigger selects or grabs.
+    const models = new XRControllerModelFactory();
     for (let i = 0; i < 2; i++) {
       const ray = renderer.xr.getController(i);
       const line = new Line(
@@ -148,21 +157,64 @@ export class VrRig {
       const dot = new Mesh(new SphereGeometry(0.012, 8, 6), new MeshBasicMaterial({ color: '#fff2c4' }));
       dot.visible = false;
       ray.add(line);
-      this.inputGroup.add(ray, dot);
-      const onSelect = () => this.activate(i);
-      ray.addEventListener('selectstart', onSelect);
-      this.cleanups.push(() => ray.removeEventListener('selectstart', onSelect));
-      this.controllers.push({ ray, line, dot, hover: null });
+      const grip = renderer.xr.getControllerGrip(i);
+      grip.add(models.createControllerModel(grip));
+      this.inputGroup.add(ray, grip, dot);
+      const ctl = { ray, line, dot, hover: null as Hover | null, down: false, connected: false, source: null as XRInputSource | null };
+      const onStart = () => {
+        ctl.down = true;
+        this.activate(i);
+      };
+      const onEnd = () => {
+        ctl.down = false;
+      };
+      const onConnected = (e: { data?: XRInputSource }) => {
+        ctl.connected = true;
+        ctl.source = e.data ?? null;
+      };
+      const onDisconnected = () => {
+        ctl.connected = false;
+        ctl.down = false;
+        ctl.source = null;
+      };
+      ray.addEventListener('selectstart', onStart);
+      ray.addEventListener('selectend', onEnd);
+      ray.addEventListener('connected', onConnected as never);
+      ray.addEventListener('disconnected', onDisconnected);
+      this.cleanups.push(() => {
+        ray.removeEventListener('selectstart', onStart);
+        ray.removeEventListener('selectend', onEnd);
+        ray.removeEventListener('connected', onConnected as never);
+        ray.removeEventListener('disconnected', onDisconnected);
+      });
+      this.controllers.push(ctl);
     }
   }
 
   // ── per frame ──────────────────────────────────────────────────────────────
 
   /** Moves everything to where the player stands, turned to face the way they face. */
-  setAnchor(origin: Vector3, yaw: number): void {
+  setAnchor(origin: Vector3, yaw: number, floorY: number): void {
     this.group.position.copy(origin);
     this.group.rotation.set(0, yaw, 0);
+    // The map table reaches from the floor up to just under the map.
+    const floor = floorY - origin.y;
+    const top = VR_MAP_POSITION.y - 0.03;
+    const height = Math.max(0.3, top - floor);
+    this.column.scale.y = height;
+    this.column.position.y = floor + height / 2;
+    this.base.position.y = floor + 0.03;
     this.group.updateMatrixWorld(true);
+  }
+
+  /** A short buzz on a controller (0 = left, 1 = right as the runtime numbers them). */
+  haptic(id: number, strength: number, ms: number): void {
+    const actuator = (this.controllers[id]?.source?.gamepad as (Gamepad & { hapticActuators?: Array<{ pulse(v: number, d: number): void }> }) | undefined)?.hapticActuators?.[0];
+    try {
+      actuator?.pulse(strength, ms);
+    } catch {
+      // not every runtime supports it
+    }
   }
 
   update(_dt: number, time: number): void {
@@ -214,9 +266,9 @@ export class VrRig {
     this.drawNote(noteText);
     this.drawAwaken(onMap && allVisited(state));
     this.drawMenu(state.muted);
+    this.title.mesh.visible = !inScene; // in a scene the sign in the clearing is the title
     this.updateZoneLabels(onMap, state.visited);
-
-    this.pointAndPoll(onMap);
+    this.onMapNow = onMap;
   }
 
   dispose(): void {
@@ -244,11 +296,11 @@ export class VrRig {
       this.note.mesh.position.set(0, 0.16, -1.6);
       this.awaken.mesh.position.set(0, 0.04, -1.2);
     } else {
-      // Below and above the stage (a 2.4 × 1.35 m window about 1.65 m away), so the picture stays clear.
-      this.caption.mesh.position.set(0, -0.82, -1.3);
-      this.prompt.mesh.position.set(0, 0.86, -1.3);
-      this.title.mesh.position.set(-0.8, 0.74, -1.3);
-      this.note.mesh.position.set(0, -1.05, -1.3);
+      // In a scene the clearing is all around: captions float at eye level beyond the table, the prompt above.
+      this.caption.mesh.position.set(0, -0.06, -1.7);
+      this.prompt.mesh.position.set(0, 0.34, -1.7);
+      this.title.mesh.position.set(-0.8, 0.74, -1.7);
+      this.note.mesh.position.set(0, -0.3, -1.7);
       this.awaken.mesh.position.set(0, 0, -1.3);
     }
     for (const p of [this.caption, this.prompt, this.title, this.note, this.awaken]) p.mesh.rotation.set(mode === 'map' ? -0.22 : 0, 0, 0);
@@ -413,14 +465,20 @@ export class VrRig {
     return list;
   }
 
-  private pointAndPoll(onMap: boolean): void {
+  /**
+   * Aims every controller: menu panels and zone targets first (they hover in front), then the scene's items
+   * through the interaction manager. Returns the scene's pointer frames (the scene shows captions from them).
+   */
+  point(dt: number, interaction: InteractionManager): PointerFrame[] {
     // Targets are aimed at before the renderer has updated them this frame, so bring their matrices current.
     this.group.updateMatrixWorld(true);
-    const targets = this.targets(onMap);
+    const targets = this.targets(this.onMapNow);
     const origin = new Vector3();
     const dir = new Vector3();
     const quat = new Quaternion();
-    for (const c of this.controllers) {
+    const sources: PointerSource[] = [];
+    const limits = new Map<number, number>();
+    this.controllers.forEach((c, i) => {
       c.ray.updateMatrixWorld(true);
       origin.setFromMatrixPosition(c.ray.matrixWorld);
       c.ray.getWorldQuaternion(quat);
@@ -432,14 +490,30 @@ export class VrRig {
         c.hover = null;
         c.line.scale.z = 2.5;
         c.dot.visible = false;
-        continue;
+      } else {
+        const panel = (hit.object.userData.panel as CanvasPanel | undefined) ?? null;
+        const buttonId = panel && hit.uv ? (panel.buttonAt(hit.uv)?.id ?? null) : null;
+        c.hover = { panel, buttonId, zone: (hit.object.userData.zone as GuardianId | undefined) ?? null, distance: hit.distance, point: hit.point };
+        limits.set(i, hit.distance);
       }
-      const panel = (hit.object.userData.panel as CanvasPanel | undefined) ?? null;
-      const buttonId = panel && hit.uv ? (panel.buttonAt(hit.uv)?.id ?? null) : null;
-      c.hover = { panel, buttonId, zone: (hit.object.userData.zone as GuardianId | undefined) ?? null, distance: hit.distance, point: hit.point };
-      c.line.scale.z = hit.distance;
-      c.dot.position.copy(hit.point);
-      c.dot.visible = true;
+      if (c.connected) sources.push({ id: i, origin: origin.clone(), direction: dir.clone(), down: c.down });
+    });
+
+    const frames = interaction.update(dt, sources, limits);
+    for (const f of frames) {
+      const c = this.controllers[f.id]!;
+      if (f.hovered || f.holding) c.hover = null; // the scene's item is in front of any panel
+      const hit = c.hover;
+      const distance = hit ? hit.distance : f.distance;
+      const point = hit ? hit.point : f.point;
+      if (distance === null || !point) {
+        c.line.scale.z = 2.5;
+        c.dot.visible = false;
+      } else {
+        c.line.scale.z = distance;
+        c.dot.position.copy(point);
+        c.dot.visible = true;
+      }
     }
 
     // Quest Touch buttons (xr-standard mapping): 4 = A / X, 5 = B / Y.
@@ -461,6 +535,7 @@ export class VrRig {
         edge(5, () => this.deps.actions.toggleMute());
       }
     });
+    return frames;
   }
 
   /** Called when the trigger is pulled on controller `i`. */

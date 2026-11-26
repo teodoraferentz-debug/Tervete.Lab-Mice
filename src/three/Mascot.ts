@@ -1,7 +1,7 @@
-import { Group, Sprite, SpriteMaterial } from 'three';
-import { isReady } from '../content/assets';
+import { Box3, Group, SRGBColorSpace, Sprite, SpriteMaterial, TextureLoader, Vector3 } from 'three';
+import { getAsset, isReady } from '../content/assets';
 import type { Guardian } from '../content/guardians';
-import { loadArt } from './story/art';
+import { loadModel } from './forest/loaders';
 import { easeOutBack } from './util';
 
 export interface MascotRig {
@@ -11,9 +11,9 @@ export interface MascotRig {
 }
 
 /**
- * Billboard of the illustrated mascot (used where a mascot stands in the 3D diorama, e.g. the finale).
- * A guardian with its own ready illustration uses it; otherwise the main Tērvete mascot stands in.
- * Mascots are never built from 3D primitives.
+ * A mascot standing in the 3D diorama (the finale). A guardian with a real 3D model
+ * (public/assets/models/mascots/<id>.glb) stands there as that model; otherwise its illustration is a
+ * billboard, and the main Tērvete mascot stands in when there is none.
  */
 export function buildMascot(guardian: Guardian, scale = 1): MascotRig {
   const key = isReady(guardian.assetKeys.mascot) ? guardian.assetKeys.mascot : 'mascot-default';
@@ -24,13 +24,32 @@ export function buildMascot(guardian: Guardian, scale = 1): MascotRig {
   sprite.scale.set(height, height, 1);
   sprite.position.y = height / 2;
   group.add(sprite);
-  void loadArt(key)
-    .then((art) => {
-      material.map = art.texture;
-      material.needsUpdate = true;
-      sprite.scale.set(height * art.aspect, height, 1);
-    })
-    .catch((error) => console.warn('[mascot] art not available', error));
+  const entry = getAsset(key);
+  if (entry) {
+    new TextureLoader().load(
+      entry.url,
+      (texture) => {
+        texture.colorSpace = SRGBColorSpace;
+        material.map = texture;
+        material.needsUpdate = true;
+        const img = texture.image as { width: number; height: number };
+        sprite.scale.set(height * (img.width / img.height), height, 1);
+      },
+      undefined,
+      () => console.warn('[mascot] art not available'),
+    );
+  }
+  void loadModel(`mascots/${guardian.id}`).then((source) => {
+    if (!source) return;
+    const model = source.clone(true);
+    const box = new Box3().setFromObject(model);
+    const size = box.getSize(new Vector3());
+    model.scale.setScalar(height / Math.max(0.001, size.y));
+    box.setFromObject(model);
+    model.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+    sprite.visible = false;
+    group.add(model);
+  });
 
   return {
     group,

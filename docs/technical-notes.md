@@ -232,3 +232,34 @@ npm run build
 
 Verificarea vizuală (capturi în Chromium cu WebGL software) este descrisă în `docs/test-checklist.md`.
 Testarea pe un telefon real rămâne manuală.
+
+
+## 3D scenes and pointer interaction (VR-first)
+
+Attractions are real 3D scenes (`src/three/forest/`), not layered illustrations:
+
+- `ForestEnvironment`: photographed misty-pine sky dome (also the image-based light), PBR forest floor, pine
+  trunks, and decimated CC0 saplings, ferns, rocks and stumps, all placed from a seed. Quest-friendly: instanced
+  trunks, no real-time shadows in the headset, fog hides the edge of the world.
+- `ForestScene` + `props/*.ts`: one prop set per guardian on a workshop table (or a stand), a `Gateway` (posts,
+  sign with the zone name, lanterns) and the guardian's mascot (`Totem`, which swaps in `models/mascots/<id>.glb`).
+- Story timing is still the `SceneClock` and the `pitchBeats` cues: props appear on `activity`, the reward plays
+  on `moment`. Interactions are an optional layer on top, so a presenter can run it hands-off.
+- `interaction.ts` (`InteractionManager`): one system for headset controllers, the mouse and a finger. Items
+  are `press` (tap/trigger), `grab` (carry along the ray, snap or return home) or `drag` (the scent wheel).
+  Hover glows, a caption names the item, controllers buzz.
+- VR: the player stands on the real floor (`local-floor`; a head-height estimate when the runtime has none). The
+  map is a tabletop on a wooden table; captions float at eye level. Panels and zone labels take priority over scene
+  items when they are nearer along the ray.
+
+What each scene lets you do (all drawn from the brief's physical activities, nothing new):
+
+| Guardian | Interactions |
+| --- | --- |
+| Skats | pick up leaves, cones, seeds; the magnifier reads shape / colour / pattern; press a leaf into the salted dough; the ornament rises and glows |
+| Austiņa | strike the xylophone bars, tap the claves, find the bird, leaves and wind; layered rings of sound |
+| Odziņa | thread orange slices, berries and nuts onto the string; the necklace lifts and glows (tasting is never shown) |
+| Deguntiņš | spin the scent wheel; ribbons of the chosen family spiral up |
+| Plaukstiņa | open the five hatches (bark, cones, moss, sand, wood); a hand-print blooms; the sensory trail appears |
+
+In AR the same scene stands as a miniature on the printed map (look only; pointing is for Magic Mode and VR).
