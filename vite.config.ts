@@ -35,11 +35,12 @@ const optimizerShim = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   // Set BASE_PATH=/repo-name/ when the site is served from a sub-path (GitHub Pages project sites).
   base: process.env.BASE_PATH ?? '/',
-  // HTTPS=1 npm run dev:https → self-signed certificate, needed for the phone camera over the local network.
-  plugins: [mindArThreeShim(), react(), ...(process.env.HTTPS ? [basicSsl()] : [])],
+  // `npm run dev:https` (mode "https") → self-signed certificate, needed for the headset and phone camera over
+  // the local network. Works the same on Windows, macOS and Linux.
+  plugins: [mindArThreeShim(), react(), ...(mode === 'https' || process.env.HTTPS ? [basicSsl()] : [])],
   optimizeDeps: {
     rolldownOptions: { plugins: [optimizerShim] },
   },
@@ -54,4 +55,4 @@ export default defineConfig({
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
   },
-});
+}));

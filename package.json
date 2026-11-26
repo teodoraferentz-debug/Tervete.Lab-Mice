@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "dev:https": "HTTPS=1 vite --host",
+    "dev:https": "vite --host --mode https",
     "build": "tsc -p tsconfig.app.json && vite build",
     "preview": "vite preview --host",
-    "preview:https": "HTTPS=1 vite preview --host",
+    "preview:https": "vite preview --host --mode https",
     "typecheck": "tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "test": "vitest run"

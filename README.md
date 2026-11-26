@@ -39,8 +39,10 @@ Aplicația rulează și într-un headset, cu WebXR, direct din browserul Quest. 
 headset și nu se conectează nimic la mine: calculatorul tău servește pagina, iar Quest o deschide.
 
 1. Calculatorul și Quest pe **același Wi‑Fi** (Bluetooth nu contează).
-2. Pe calculator: `npm install`, apoi `npm run dev:https`. Notează adresa „Network", de forma
-   `https://192.168.x.x:5173/`. Dacă Windows întreabă despre firewall, permite accesul.
+2. Pe calculator (Node 22 și Git instalate): `git clone https://github.com/teodoraferentz-debug/Tervete.Lab-Mice.git`,
+   `cd Tervete.Lab-Mice`, `npm install`, apoi `npm run dev:https` (merge pe Windows, macOS și Linux).
+   Notează adresa „Network" din terminal, de forma `https://192.168.x.x:5173/`. Dacă Windows întreabă despre
+   firewall, permite accesul pe rețele private.
 3. În **browserul Quest**, deschide adresa. Apare un avertisment de certificat (autosemnat): *Advanced*,
    apoi *Proceed*. Pagina cere HTTPS, altfel butonul VR nu apare.
 4. Apasă **Enter VR**.
