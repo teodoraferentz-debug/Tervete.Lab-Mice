@@ -1,0 +1,30 @@
+/* Tērvete / LVM brand tokens. Mirrors src/content/brand.ts.
+   Palette source: atputa.lvm.lv (site CSS) + mascot illustrations in the project Figma board. */
+:root {
+  --tv-green: #046241;
+  --tv-green-dark: #00291b;
+  --tv-sage: #96b693;
+  --tv-leaf: #4a7729;
+  --tv-gold: #e2aa18;
+  --tv-ink: #212529;
+  --tv-cream: #f3e9cf;
+  --tv-wood: #8a5a33;
+  --tv-bark: #5e3b22;
+
+  /* UI roles. Text on --surface stays above 7:1 contrast. */
+  --surface: rgba(0, 30, 20, 0.82);
+  --surface-strong: rgba(0, 24, 16, 0.92);
+  --text: #f9f2de;
+  --text-dim: #d3dccb;
+  --line: rgba(226, 170, 24, 0.38);
+  --accent: var(--tv-gold);
+  --on-gold: #1b1300;
+
+  --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+  --font-body: 'Franklin Gothic Medium', 'Franklin Gothic Book', 'Libre Franklin', 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+  --radius: 18px;
+  --radius-sm: 12px;
+  --shadow: 0 14px 40px rgba(0, 12, 8, 0.45);
+  --gutter: max(16px, env(safe-area-inset-left));
+}
