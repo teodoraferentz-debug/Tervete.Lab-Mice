@@ -1,7 +1,9 @@
 import {
   AdditiveBlending,
   Box3,
+  type Camera,
   BufferAttribute,
+  BoxGeometry,
   BufferGeometry,
   CircleGeometry,
   Color,
@@ -31,17 +33,25 @@ import { BRAND } from '../content/brand';
 import { getAsset, isReady } from '../content/assets';
 import { GUARDIANS, type Guardian, type GuardianId } from '../content/guardians';
 import type { SceneClock } from '../experience/SceneClock';
-import { activeCaption, cueTimes } from '../experience/timeline';
+import { cueTimes } from '../experience/timeline';
 import { PITCH } from '../content/pitchScript';
 import { disposeTree } from './kit';
 import type { QualityTier } from './quality';
 import { SensesTree } from './SensesTree';
+import { loadTerrain, Terrain } from './terrain';
 import { beamTexture, glowTexture, MAP_D, MAP_W, placeholderMapTexture } from './textures';
-import { mulberry32, since } from './util';
+import { mulberry32 } from './util';
+import { artKeysOf, compositionFor } from './story/compositions';
+import { preloadArt } from './story/art';
+import { StoryScene } from './story/StoryScene';
 import { ZoneRig } from './ZoneRig';
 
 const MAX_TREES = 260;
 const MAX_AMBIENT = 170;
+/** Open ground west of the Pasaku mežs, between the five zones, on the interim map. */
+const FINALE_UV = { u: 0.4, v: 0.43 };
+const SURFACE_SEGMENTS = { x: 192, y: 138 };
+const FRAME_TOP = -0.13;
 
 export type WorldMode = 'map' | 'attraction' | 'finale';
 
@@ -57,6 +67,11 @@ interface Playing {
  */
 export class World {
   readonly root = new Group();
+  /** The map table (relief, forest, zones, finale tree). Hidden while a story scene fills the screen. */
+  readonly diorama = new Group();
+  private readonly stories = new Map<GuardianId, StoryScene>();
+  private activeStory: StoryScene | null = null;
+  private readonly storyDeps: { glow: Texture; beam: Texture };
   readonly zones = new Map<GuardianId, ZoneRig>();
   private readonly tree: SensesTree;
   private readonly textures: Texture[] = [];
@@ -77,6 +92,12 @@ export class World {
   private readonly treesMoving = new Set<number>();
   private readonly treeMatrix = new Matrix4();
   private readonly shadowBlob: Mesh;
+  private readonly surface: Mesh;
+  private terrain: Terrain | null = null;
+  private tier: QualityTier | null = null;
+  private clearBox: Box3 | null = null;
+  /** Where the Tree of Five Senses grows (a free spot on the map). */
+  private readonly finaleCenter = new Vector3((FINALE_UV.u - 0.5) * MAP_W, 0, (FINALE_UV.v - 0.5) * MAP_D);
 
   mode: WorldMode = 'map';
   private playing: { guardian: Guardian | null; data: Playing } | null = null;
@@ -94,8 +115,8 @@ export class World {
     this.textures.push(glow, beam);
 
     // Light: low golden sun through the pines + soft sky fill
-    this.root.add(new HemisphereLight('#fff0c8', '#1f3a2c', 1.7));
-    this.sun = new DirectionalLight('#ffd68a', 2.7);
+    this.root.add(new HemisphereLight('#fff0c8', '#1f3a2c', 1.25));
+    this.sun = new DirectionalLight('#ffd68a', 2.3);
     this.sun.position.set(-3.5, 7, 4.5);
     this.sun.castShadow = false;
     this.sun.shadow.mapSize.set(1024, 1024);
@@ -109,33 +130,49 @@ export class World {
     this.sun.shadow.normalBias = 0.02;
     this.root.add(this.sun, this.sun.target);
 
-    // Frame + map surface
-    this.frame = new Mesh(
-      new RoundedBoxGeometry(MAP_W + 0.5, 0.5, MAP_D + 0.5, 4, 0.12),
-      new MeshStandardMaterial({ color: '#6e4528', roughness: 0.85, flatShading: false }),
-    );
-    this.frame.position.y = -0.25;
+    // Wooden frame: a slab under the map and a rim that closes the gap to the relief's edge
+    const wood = new MeshStandardMaterial({ color: '#6e4528', roughness: 0.85 });
+    this.frame = new Mesh(new RoundedBoxGeometry(MAP_W + 0.5, 0.5, MAP_D + 0.5, 4, 0.12), wood);
+    this.frame.position.y = FRAME_TOP - 0.25;
     this.frame.receiveShadow = true;
-    this.root.add(this.frame);
+    this.diorama.add(this.frame);
+    const rimH = 0.17;
+    const rimY = FRAME_TOP + rimH / 2;
+    const rims: Array<[number, number, number, number, number]> = [
+      [0.25, MAP_D + 0.5, -(MAP_W / 2 + 0.125), 0, 0],
+      [0.25, MAP_D + 0.5, MAP_W / 2 + 0.125, 0, 0],
+      [MAP_W, 0.25, 0, -(MAP_D / 2 + 0.125), 0],
+      [MAP_W, 0.25, 0, MAP_D / 2 + 0.125, 0],
+    ];
+    rims.forEach(([w, d, x, z]) => {
+      const rim = new Mesh(new BoxGeometry(w, rimH, d), wood);
+      rim.position.set(x, rimY, z);
+      rim.castShadow = true;
+      rim.receiveShadow = true;
+      this.frame.add(rim);
+      rim.position.y -= this.frame.position.y;
+    });
 
-    const mapTex = placeholderMapTexture();
-    this.textures.push(mapTex);
-    this.mapMaterial = new MeshStandardMaterial({ map: mapTex, roughness: 1, metalness: 0 });
-    const surface = new Mesh(new PlaneGeometry(MAP_W, MAP_D), this.mapMaterial);
-    surface.rotation.x = -Math.PI / 2;
-    surface.position.y = 0.003;
-    surface.receiveShadow = true;
-    this.root.add(surface);
-    this.loadMapIllustration();
+    // Map surface: with the real map it is textured with the illustration and raised into relief
+    const realMap = isReady('map-illustration');
+    const mapTex = realMap ? null : placeholderMapTexture();
+    if (mapTex) this.textures.push(mapTex);
+    this.mapMaterial = new MeshStandardMaterial({ map: mapTex, color: realMap ? '#5b7a47' : '#ffffff', roughness: 1, metalness: 0 });
+    this.surface = new Mesh(new PlaneGeometry(MAP_W, MAP_D, SURFACE_SEGMENTS.x, SURFACE_SEGMENTS.y), this.mapMaterial);
+    this.surface.rotation.x = -Math.PI / 2;
+    this.surface.receiveShadow = true;
+    this.surface.castShadow = true;
+    this.diorama.add(this.surface);
+    void this.loadMapAssets();
 
     this.shadowBlob = new Mesh(
       new CircleGeometry(1, 40),
       new MeshBasicMaterial({ map: glow, color: '#000000', transparent: true, opacity: 0.45, depthWrite: false }),
     );
     this.shadowBlob.rotation.x = -Math.PI / 2;
-    this.shadowBlob.position.y = -0.62;
+    this.shadowBlob.position.y = -0.72;
     this.shadowBlob.scale.set(MAP_W * 0.85, MAP_D * 0.95, 1);
-    this.root.add(this.shadowBlob);
+    this.diorama.add(this.shadowBlob);
 
     // Forest
     const foliageGeo = mergeGeometries([
@@ -149,7 +186,7 @@ export class World {
     this.foliage.castShadow = true;
     this.trunks.castShadow = true;
     this.scatterForest();
-    this.root.add(this.foliage, this.trunks);
+    this.diorama.add(this.foliage, this.trunks);
 
     // Light shafts through the canopy
     const shaftTex = beam;
@@ -166,7 +203,7 @@ export class World {
       shaft.position.set(x!, 2.1, z!);
       shaft.rotation.set(0, 0.6 + i * 0.5, rotZ!);
       this.shafts.push(shaft);
-      this.root.add(shaft);
+      this.diorama.add(shaft);
     });
 
     // Ambient motes (pollen / fireflies)
@@ -191,16 +228,20 @@ export class World {
       new PointsMaterial({ size: 0.07, map: glow, vertexColors: true, transparent: true, opacity: 0.9, blending: AdditiveBlending, depthWrite: false }),
     );
     this.ambient.frustumCulled = false;
-    this.root.add(this.ambient);
+    this.diorama.add(this.ambient);
 
     // Zones + finale tree
     GUARDIANS.forEach((g) => {
       const rig = new ZoneRig(g, glow, beam);
       this.zones.set(g.id, rig);
-      this.root.add(rig.group);
+      this.diorama.add(rig.group);
     });
     this.tree = new SensesTree(this.zones, glow);
-    this.root.add(this.tree.group);
+    this.tree.layout(this.finaleCenter);
+    this.diorama.add(this.tree.group);
+    this.root.add(this.diorama);
+    this.storyDeps = { glow, beam };
+    void this.prepareStories();
   }
 
   /** AR places the diorama on the printed map: no table frame or floor shadow there. */
@@ -212,6 +253,7 @@ export class World {
   }
 
   setQuality(tier: QualityTier): void {
+    this.tier = tier;
     const trees = Math.min(tier.trees, this.treeCap);
     this.foliage.count = trees;
     this.trunks.count = trees;
@@ -229,6 +271,7 @@ export class World {
 
   /** Shrinks the trees inside `box` (x/z only) so the scene is not hidden behind them. null = bring all back. */
   private clearTreesIn(box: Box3 | null): void {
+    this.clearBox = box;
     for (let i = 0; i < this.treeCap; i++) {
       const p = this.treeP[i]!;
       const inside = box !== null && p.x >= box.min.x && p.x <= box.max.x && p.z >= box.min.z && p.z <= box.max.z;
@@ -245,54 +288,73 @@ export class World {
     this.clearTreesIn(null);
     this.playing = null;
     this.tree.setVisible(false);
-    this.zones.forEach((z, id) => {
-      z.setActive(false);
-      z.setLit(visited.includes(id), instant);
-    });
+    this.leaveStory();
+    this.zones.forEach((z, id) => z.setLit(visited.includes(id), instant));
     if (justActivated) this.zones.get(justActivated)?.triggerActivation();
   }
 
+  /**
+   * An attraction is a cinematic story scene (layered illustration), not a part of the 3D map.
+   * Magic Mode: it fills the screen and the map table is hidden. AR: it floats above the printed map as a
+   * pop-up that faces the viewer, with the map still visible below.
+   */
   playAttraction(guardian: Guardian, clock: SceneClock): void {
     this.mode = 'attraction';
-    this.clearTreesIn(this.zoneBox(guardian.id).expandByScalar(0.35));
     this.tree.setVisible(false);
     this.playing = { guardian, data: { clock, cues: cueTimes(guardian.pitchBeats), beats: guardian.pitchBeats } };
-    this.zones.forEach((z, id) => z.setActive(id === guardian.id));
+    const story = this.storyFor(guardian);
+    this.leaveStory();
+    this.activeStory = story;
+    story.group.visible = true;
+    if (this.external) {
+      const zone = this.zones.get(guardian.id);
+      story.placePopup((zone?.worldPosition ?? new Vector3()).clone().add(new Vector3(0, 1.5, 0)));
+      this.diorama.visible = true;
+    } else {
+      story.placeScreen();
+      this.diorama.visible = false;
+    }
     this.lastT = -1;
   }
 
   playFinale(clock: SceneClock): void {
     this.mode = 'finale';
     this.clearTreesIn(this.finaleBox().expandByScalar(0.3));
+    this.leaveStory();
     this.tree.setVisible(true);
     this.playing = { guardian: null, data: { clock, cues: cueTimes(PITCH.finale.beats), beats: PITCH.finale.beats } };
-    this.zones.forEach((z) => {
-      z.setActive(false);
-      z.setLit(true);
-    });
+    this.zones.forEach((z) => z.setLit(true));
     this.lastT = -1;
   }
 
   // ── camera boxes (world space, before any AR transform) ───────────────────
 
   mapBox(): Box3 {
-    return new Box3(new Vector3(-MAP_W / 2, -0.1, -MAP_D / 2), new Vector3(MAP_W / 2, 1.1, MAP_D / 2));
+    // The five zones sit close together on the real map, so the Magic Mode view frames that core
+    // (with a margin) instead of the whole poster. In AR the real camera sees the whole sheet anyway.
+    const box = new Box3();
+    this.zones.forEach((z) => box.expandByPoint(z.worldPosition));
+    box.expandByVector(new Vector3(1.5, 0, 1.15));
+    box.min.set(Math.max(box.min.x, -MAP_W / 2), -0.2, Math.max(box.min.z, -MAP_D / 2));
+    box.max.set(Math.min(box.max.x, MAP_W / 2), 1.1, Math.min(box.max.z, MAP_D / 2));
+    return box;
   }
 
   zoneBox(id: GuardianId): Box3 {
     const p = this.zones.get(id)?.worldPosition ?? new Vector3();
-    return new Box3(new Vector3(p.x - 0.8, 0, p.z - 0.45), new Vector3(p.x + 1.0, 1.4, p.z + 0.85));
+    return new Box3(new Vector3(p.x - 0.8, p.y, p.z - 0.45), new Vector3(p.x + 1.0, p.y + 1.4, p.z + 0.85));
   }
 
   finaleBox(): Box3 {
-    return new Box3(new Vector3(-1.85, 0, -0.9), new Vector3(1.85, 2.9, 1.7));
+    const c = this.finaleCenter;
+    return new Box3(new Vector3(c.x - 1.85, c.y, c.z - 0.9), new Vector3(c.x + 1.85, c.y + 2.9, c.z + 1.7));
   }
 
   // ── per frame ──────────────────────────────────────────────────────────────
 
   private lastT = -1;
 
-  update(dt: number, time: number, motion: number): void {
+  update(dt: number, time: number, motion: number, camera: Camera | null = null): void {
     // Ambient motes
     const pos = this.ambient.geometry.getAttribute('position') as BufferAttribute;
     const n = (this.ambient.geometry.drawRange.count === Infinity ? MAX_AMBIENT : this.ambient.geometry.drawRange.count) | 0;
@@ -313,7 +375,7 @@ export class World {
 
     const playing = this.playing;
     if (!playing) return;
-    const { clock, cues, beats } = playing.data;
+    const { clock, cues } = playing.data;
     const t = clock.time;
 
     // Memorable moment: tell the app once (for the chime)
@@ -323,19 +385,41 @@ export class World {
     }
     this.lastT = t;
 
-    if (this.mode === 'attraction' && playing.guardian) {
-      const speaking = activeCaption(beats, t)?.beat.speaker === 'mascot';
-      this.zones.get(playing.guardian.id)?.updateActors({
-        t,
-        enter: since(t, cues.enter),
-        activity: since(t, cues.activity),
-        moment: since(t, cues.moment),
-        speaking,
-        motion,
-      });
+    if (this.mode === 'attraction' && this.activeStory) {
+      this.activeStory.update(t, cues, time, motion, playing.data.clock.duration, camera);
     } else if (this.mode === 'finale') {
       this.tree.update(t, cues, time, motion);
     }
+  }
+
+  private storyFor(guardian: Guardian): StoryScene {
+    let story = this.stories.get(guardian.id);
+    if (!story) {
+      story = new StoryScene(guardian, compositionFor(guardian.id), this.storyDeps.glow, this.storyDeps.beam);
+      story.group.visible = false;
+      this.root.add(story.group);
+      this.stories.set(guardian.id, story);
+      void story.load();
+    }
+    return story;
+  }
+
+  private leaveStory(): void {
+    if (this.activeStory) this.activeStory.group.visible = false;
+    this.activeStory = null;
+    this.diorama.visible = true;
+  }
+
+  /** Tells the active story how big the view is (fov/aspect), so cover layers fill it exactly. */
+  setStoryView(fovDeg: number, aspect: number): void {
+    this.activeStory?.setView(fovDeg, aspect, this.external);
+  }
+
+  /** Warms the art cache in the background so the first scene starts instantly. */
+  private async prepareStories(): Promise<void> {
+    const keys = new Set<string>(['vignette', 'mascot-default']);
+    for (const g of GUARDIANS) artKeysOf(compositionFor(g.id)).forEach((k) => keys.add(k));
+    await preloadArt([...keys]);
   }
 
   private animateTrees(dt: number, motion: number): void {
@@ -368,25 +452,55 @@ export class World {
 
   // ── internals ──────────────────────────────────────────────────────────────
 
-  /** Swap in the real illustrated map once it is registered as ready. */
-  private loadMapIllustration(): void {
-    const entry = getAsset('map-illustration');
-    if (!entry || !isReady('map-illustration')) return;
-    new TextureLoader().load(
-      entry.url,
-      (tex) => {
-        tex.colorSpace = SRGBColorSpace;
-        this.textures.push(tex);
-        this.mapMaterial.map = tex;
-        this.mapMaterial.needsUpdate = true;
-      },
-      undefined,
-      () => console.warn(`[assets] Could not load ${entry.url}; keeping the placeholder map.`),
-    );
+  /** Loads the real map and its relief (when registered as ready) and builds the 3D terrain from them. */
+  private async loadMapAssets(): Promise<void> {
+    const mapEntry = getAsset('map-illustration');
+    if (!mapEntry || !isReady('map-illustration')) return;
+    try {
+      const reliefEntry = getAsset('map-relief');
+      const [tex, terrain] = await Promise.all([
+        new TextureLoader().loadAsync(mapEntry.url),
+        reliefEntry && isReady('map-relief') ? loadTerrain(reliefEntry.url) : Promise.resolve(null),
+      ]);
+      tex.colorSpace = SRGBColorSpace;
+      tex.anisotropy = 8;
+      this.textures.push(tex);
+      this.mapMaterial.map = tex;
+      this.mapMaterial.color.set('#d6d6d6'); // the poster is light: tone it down under the golden sun
+      this.mapMaterial.needsUpdate = true;
+      if (terrain) this.applyTerrain(terrain);
+    } catch (error) {
+      console.warn('[assets] Could not load the map; keeping the placeholder.', error);
+    }
   }
 
+  /** Raises the surface into relief and seats zones, the finale tree and the forest on it. */
+  private applyTerrain(terrain: Terrain): void {
+    this.terrain = terrain;
+    const geo = this.surface.geometry;
+    const pos = geo.getAttribute('position') as BufferAttribute;
+    for (let i = 0; i < pos.count; i++) {
+      // The plane lies in XY and is rotated flat: its Y is the world's -Z, its Z the world's height.
+      pos.setZ(i, terrain.heightAt(pos.getX(i), -pos.getY(i)));
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    geo.computeBoundingBox();
+
+    this.zones.forEach((z) => z.setGround(terrain.heightAt(z.worldPosition.x, z.worldPosition.z), true));
+    this.finaleCenter.y = terrain.heightAt(this.finaleCenter.x, this.finaleCenter.z);
+    this.tree.layout(this.finaleCenter);
+    this.scatterForest();
+  }
+
+  /**
+   * Plants the forest. With the real terrain, trees grow only in the outer forest (never on roads, the
+   * park itself, banners or legends) so the map stays readable; otherwise a placeholder layout is used.
+   */
   private scatterForest(): void {
     const rnd = mulberry32(31337);
+    const terrain = this.terrain;
     const zonePts = GUARDIANS.map((g) => new Vector3((g.zone.mapPosition.u - 0.5) * MAP_W, 0, (g.zone.mapPosition.v - 0.5) * MAP_D));
     const order = ['skats', 'austina', 'odzina', 'plaukstina', 'deguntins', 'skats'];
     const loop = order.map((id) => zonePts[GUARDIANS.findIndex((g) => g.id === id)]!);
@@ -404,6 +518,13 @@ export class World {
       return best;
     };
 
+    this.treeP.length = 0;
+    this.treeQ.length = 0;
+    this.treeS.length = 0;
+    this.treeNow.fill(1);
+    this.treeGoal.fill(1);
+    this.treesMoving.clear();
+
     const m = new Matrix4();
     const q = new Quaternion();
     const s = new Vector3();
@@ -413,17 +534,22 @@ export class World {
     const greens = ['#2c5a35', '#34663a', '#3b7340', '#4a7729', '#2f6246'].map((c) => new Color(c));
     let placed = 0;
     let guard = 0;
-    while (placed < MAX_TREES && guard++ < 6000) {
-      const x = (rnd() - 0.5) * (MAP_W - 0.6);
-      const z = (rnd() - 0.5) * (MAP_D - 0.6);
-      if (z > MAP_D * 0.34) continue; // river
-      if (Math.hypot(x, z) < 1.15) continue; // clearing for the Tree of Five Senses
+    while (placed < MAX_TREES && guard++ < 12000) {
+      const x = (rnd() - 0.5) * (MAP_W - 0.5);
+      const z = (rnd() - 0.5) * (MAP_D - 0.5);
+      let scale = 0.42 + rnd() * 0.3;
+      if (terrain) {
+        if (terrain.treeAt(x, z) < 0.6) continue;
+        scale = 0.26 + rnd() * 0.2;
+      } else {
+        if (z > MAP_D * 0.34) continue; // river
+        if (distToTrail(x, z) < 0.32) continue;
+      }
+      if (Math.hypot(x - this.finaleCenter.x, z - this.finaleCenter.z) < (terrain ? 2.2 : 1.15)) continue;
       if (zonePts.some((zp) => Math.hypot(x - zp.x, z - zp.z) < 0.95)) continue;
-      if (distToTrail(x, z) < 0.32) continue;
-      const scale = 0.42 + rnd() * 0.3;
       q.setFromAxisAngle(up, rnd() * Math.PI * 2);
       s.set(scale, scale * (0.9 + rnd() * 0.5), scale);
-      p.set(x, 0, z);
+      p.set(x, terrain ? terrain.heightAt(x, z) : 0, z);
       m.compose(p, q, s);
       this.foliage.setMatrixAt(placed, m);
       this.trunks.setMatrixAt(placed, m);
@@ -435,10 +561,13 @@ export class World {
       placed++;
     }
     this.treeCap = placed;
-    this.foliage.count = placed;
-    this.trunks.count = placed;
+    const visible = Math.min(this.tier?.trees ?? MAX_TREES, placed);
+    this.foliage.count = visible;
+    this.trunks.count = visible;
     this.foliage.instanceMatrix.needsUpdate = true;
     this.trunks.instanceMatrix.needsUpdate = true;
+    if (this.foliage.instanceColor) this.foliage.instanceColor.needsUpdate = true;
+    // Keep the forest parted around the scene that is currently playing.
+    if (this.clearBox) this.clearTreesIn(this.clearBox);
   }
 }
-

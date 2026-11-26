@@ -18,6 +18,9 @@ dispozitivele reale.
 - [ ] Fiecare scenă (20–40 s) arată: titlul gardianului, mascota, reprezentarea activității fizice,
       un moment vizual memorabil, subtitrări, mesajul galben „Presenter" cu recuzita, apoi revine pe hartă.
 - [ ] La revenire, **zona vizitată se luminează** în culoarea ei, are bifă, iar contorul crește.
+- [ ] Scenele sunt compoziții pe straturi (backdrop foto, mascotă ilustrată, recuzită, familie, AR), fără personaje low-poly și fără text mare peste scenă.
+- [ ] **Skats (hero):** masă de atelier cu frunze, conuri, semințe, aluat sărat, fire, lupă; copil și părinte; AR scoate la iveală spirala conului, culorile, forma frunzei ascunse în natură; ornamentul-suvenir urcă în centru.
+- [ ] **Odziņa:** colierul din portocală uscată, fructe de pădure și nuci apare ca suvenir; zonele fără suvenir în brief (Austiņa, Deguntiņš, Plaukstiņa) nu inventează unul.
 - [ ] Scena **Odziņa** arată nota de siguranță, iar replicile nu încurajează consumul de plante din pădure.
 - [ ] După a cincea zonă apare butonul **Awaken the Tree of Five Senses**; finala arată toți cei cinci
       gardieni și copacul cu cinci culori.
@@ -67,6 +70,7 @@ dispozitivele reale.
 - [ ] Markerul compilat este în `public/assets/markers/tervete-map.mind` (vezi README-ul din acel folder).
 - [ ] Start AR → cere camera → „Point the camera at the Tērvete map" → harta e recunoscută în câteva secunde.
 - [ ] Diorama se aliniază cu hârtia (marginile și poziția zonelor coincid cu harta tipărită).
+- [ ] O scenă de atracție apare ca **pop-up** deasupra zonei, orientat spre cameră, citibil și când telefonul privește de sus.
 - [ ] Marcajele zonelor urmăresc zonele când mișcăm telefonul.
 - [ ] Harta iese din cadru → „Map out of view" → revine fără să piardă progresul.
 - [ ] Testat în lumina sălii reale, de la 30–60 cm, cu harta pe masă.

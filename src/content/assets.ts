@@ -18,16 +18,25 @@ export interface AssetEntry {
   height?: number;
 }
 
-export const ASSETS: Record<string, AssetEntry> = {
-  // Final illustrated A3 map, used as the diorama's ground texture. Landscape, ratio ≈ 1.414:1.
-  'map-illustration': { kind: 'illustration', status: 'placeholder', url: '/assets/illustrations/tervete-map.webp' },
+/** Asset URLs follow Vite's `base`, so the app also works when it is not served from the site root. */
+const url = (path: string): string => `${import.meta.env.BASE_URL}assets/${path}`;
 
+export const ASSETS: Record<string, AssetEntry> = {
+  // Ground texture of the diorama. Interim: the park's official map poster (LVM, 2577 × 1851 px) until the
+  // final illustrated map arrives. Replace the file and re-run the relief step (docs/technical-notes.md).
+  'map-illustration': { kind: 'illustration', status: 'ready', url: url('illustrations/tervete-map.webp') },
+  // 3D relief derived from the map's colours (R = height, G = tree mask, B = water). Same ratio as the map.
+  'map-relief': { kind: 'illustration', status: 'ready', url: url('illustrations/tervete-map-relief.png') },
+
+  // Until each guardian has an illustration, the main Tērvete mascot (the forest-boy detective) stands in.
+  'mascot-default': { kind: 'sprite', status: 'ready', url: url('illustrations/mascots/skats.webp'), height: 2.0 },
   // Mascots as billboard sprites (transparent WebP/PNG). A glTF model path can be added later.
-  'mascot-skats': { kind: 'sprite', status: 'placeholder', url: '/assets/illustrations/mascots/skats.webp', height: 1.5 },
-  'mascot-austina': { kind: 'sprite', status: 'placeholder', url: '/assets/illustrations/mascots/austina.webp', height: 1.5 },
-  'mascot-odzina': { kind: 'sprite', status: 'placeholder', url: '/assets/illustrations/mascots/odzina.webp', height: 1.5 },
-  'mascot-deguntins': { kind: 'sprite', status: 'placeholder', url: '/assets/illustrations/mascots/deguntins.webp', height: 1.5 },
-  'mascot-plaukstina': { kind: 'sprite', status: 'placeholder', url: '/assets/illustrations/mascots/plaukstina.webp', height: 1.5 },
+  // Skats uses the detective illustration of the Tērvete forest boy from the Figma board (cut out of its white page).
+  'mascot-skats': { kind: 'sprite', status: 'ready', url: url('illustrations/mascots/skats.webp'), height: 2.0 },
+  'mascot-austina': { kind: 'sprite', status: 'placeholder', url: url('illustrations/mascots/austina.webp'), height: 1.5 },
+  'mascot-odzina': { kind: 'sprite', status: 'placeholder', url: url('illustrations/mascots/odzina.webp'), height: 1.5 },
+  'mascot-deguntins': { kind: 'sprite', status: 'placeholder', url: url('illustrations/mascots/deguntins.webp'), height: 1.5 },
+  'mascot-plaukstina': { kind: 'sprite', status: 'placeholder', url: url('illustrations/mascots/plaukstina.webp'), height: 1.5 },
 };
 
 export function getAsset(key: string): AssetEntry | undefined {

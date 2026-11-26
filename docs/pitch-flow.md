@@ -33,6 +33,17 @@ cele cinci atracții fizice din parc, înainte să fie construite. Nu este jocul
 
 Ordinea celor cinci zone este liberă. Cea de mai sus urmează numerotarea din brief.
 
+## Cum arată o scenă
+
+Fiecare atracție este o mică poveste în trei timpi, cu text discret (doar subtitrări):
+
+1. **Welcome:** decorul (pădure reală, instalații din lemn) și mascota apar; familia e la masă.
+2. **Activity:** apare recuzita reală; AR-ul scoate la iveală forme, culori și modele ascunse în natură.
+3. **Keepsake:** acolo unde brief-ul are unul (ornamentul la Skats, colierul la Odziņa), suvenirul
+   urcă în centrul scenei și strălucește. Apoi mesajul „Presenter" îți cere să ridici recuzita reală.
+
+Harta este doar poarta de intrare și ecranul de progres.
+
 ## Ce ridici în fiecare scenă
 
 Mesajul galben „Presenter" apare în a doua jumătate a fiecărei scene. Ridică atunci recuzita:

@@ -65,15 +65,11 @@ export function AttractionScene({ guardian, state, controller }: Props) {
           <span className="scene-title__icon">
             <SenseIcon sense={guardian.sense} />
           </span>
-          <div>
-            <p className="scene-title__sense">
-              {guardian.senseLabel} · {guardian.zone.name}
-            </p>
+          <div className="scene-title__line">
             <h2 className="scene-title__name">{guardian.name}</h2>
-            <p className="scene-title__goal">
-              <span className="visually-hidden">Learning: </span>
-              {guardian.learningGoal}
-            </p>
+            <span>
+              {guardian.senseLabel} · {guardian.zone.name}
+            </span>
           </div>
         </div>
         <div className="progress" aria-hidden="true">

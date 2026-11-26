@@ -120,10 +120,10 @@ const LANDMARKS: Record<string, LandmarkBuilder> = {
   // Old Pine Park: a few very old, very tall pines on mossy ground.
   'landmark-old-pine-park': (k, g) => {
     const pines: Array<[number, number, number]> = [
-      [-0.3, -0.1, 1.15],
-      [0.05, -0.28, 1.35],
-      [0.38, 0.0, 1.2],
-      [-0.08, 0.2, 1.0],
+      [-0.3, -0.1, 0.85],
+      [0.05, -0.28, 0.98],
+      [0.38, 0.0, 0.9],
+      [-0.08, 0.2, 0.76],
     ];
     pines.forEach(([x, z, h]) => {
       const p = k.group(g, x, 0, z);

@@ -11,9 +11,11 @@ src/
   content/      date: guardians.ts (sursa unică), pitchScript.ts, assets.ts, brand.ts
   experience/   starea: sceneState.ts (reducer pur), ExperienceController.ts, SceneClock.ts, timeline.ts
   ar/           ArAdapter (contract), MockArAdapter, MindArAdapter (izolat, lazy), createArAdapter
-  three/        Stage (render loop, cameră, calitate), World (dioramă), ZoneRig, SensesTree,
-                activities (vizualuri pentru activitățile fizice), Mascot, landmarks, textures, kit
-  scenes/       MapScene, AttractionScene, FinaleScene (HUD React + comenzi către Stage)
+  three/        Stage (render loop, cameră, calitate), World (harta 3D), ZoneRig, SensesTree (finala),
+                terrain (relief), landmarks, textures, kit, Mascot (sprite ilustrat)
+  three/story/  StoryScene (scena cinematică pe straturi), compositions (datele fiecărei scene), art (ilustrații)
+  scripts/      make-relief.py (relief din hartă), compile-marker.cjs (marker AR)
+  scenes/       MapScene, AttractionScene, FinaleScene (HUD discret React + comenzi către Stage)
   presentation/ PresenterControls
   components/   Welcome, Scan, ZoneMarkers, Subtitles, PropPrompt, Notice, StageCanvas
   audio/        AudioEngine (WebAudio procedural, fără fișiere)
@@ -88,15 +90,65 @@ prezentator (`presenter`), fiecare cu un moment (`at`) și, opțional, un `cue` 
 - Camera pe telefon cere HTTPS (sau `localhost`): `npm run dev:https`, apoi accepți certificatul
   autosemnat. Pe Android, `adb reverse tcp:5173 tcp:5173` face `localhost` accesibil fără certificat.
 
-## Asset-uri
+## Scenele de atracție: compoziții cinematice pe straturi
 
-Tot ce se vede acum este **placeholder procedural**, fără surse protejate de drepturi de autor:
-harta (desenată pe canvas din pozițiile zonelor), mascotele (primitive low-poly), reperele, recuzita.
-Registrul `src/content/assets.ts` listează cheile pentru harta finală și pentru cele cinci mascote.
-Când pui fișierul în `public/assets/illustrations/...` și treci intrarea pe `status: 'ready'`,
-placeholder-ul este înlocuit automat (harta ca textură a dioramei, mascotele ca sprite-uri).
-Pozițiile zonelor (`zone.mapPosition`) se re-măsoară după harta finală. Detalii în
-`public/assets/illustrations/README.md`.
+Harta 3D este doar **poarta de intrare și ecranul de progres**. Fiecare atracție este o scenă
+cinematică, nu un decor 3D: ilustrații plate așezate în adâncime, fără personaje sau obiecte low-poly.
+
+| Strat (de la fundal spre cameră) | Ce este |
+|---|---|
+| Backdrop fotografic | fotografie reală din parc, defocalizată (Odziņa folosește fotografia „Rūķišu Mežs" clară, cu o familie reală) |
+| Siluete de pini decupate din hârtie, lumină prin copaci, particule | adâncime și atmosferă |
+| Set de lemn: pergolă, felinare-cuib de viespe (Hornet Garden), masă de atelier, panou tactil, roata de mirosuri etc. | instalațiile fizice |
+| Mascota ilustrată | respirație și legănare subtile |
+| Recuzita reală | frunze, conuri, semințe, aluat sărat, fire, portocale, fructe de pădure, nuci… |
+| Familia | copil și părinte, văzuți din spate, peste umăr |
+| **AR, doar ca extensie magică** | contururi luminoase pe obiecte, modele ascunse în natură (spirala conului, forma frunzei din coroana copacilor), culori extrase din obiecte, unde sonore, amprentă |
+| Prim-plan estompat | frunze defocalizate în colțuri |
+
+Arcul fiecărei scene: **welcome** (apar decorul și mascota) → **activity** (apar recuzita reală, apoi
+evidențierile AR) → **keepsake** (suvenirul călătorește de pe masă în centru și strălucește).
+Suvenir există doar unde îl dă brief-ul: ornamentul din aluat sărat (Skats) și colierul (Odziņa).
+La celelalte nu se inventează unul.
+
+- **Date, nu cod:** `three/story/compositions.ts` descrie straturile (poziție în „unități de ecran" pe
+  un cadru 16 × 9, adâncime `z`, moment de apariție legat de cue-urile din `pitchBeats`), evidențierile
+  AR și suvenirul. `three/story/art.ts` desenează ilustrațiile (SVG/canvas) și încarcă fotografiile.
+- **Parallax:** în Magic Mode camera derivă lent și înaintează ușor în cadru; câmpul vizual se alege ca
+  mijlocul compoziției să încapă pe orice ecran (și pe telefon în portret). Conținutul stă puțin mai sus,
+  ca subtitrările să nu acopere recuzita. Fără mișcare dacă `prefers-reduced-motion`.
+- **În AR** scena devine un **pop-up** care plutește deasupra zonei, orientat spre cameră (billboard
+  complet), cu harta tipărită vizibilă dedesubt. Telefonul mișcat dă parallax real.
+- **Skats este scena hero:** pergolă cu felinare-cuib de viespe, masă de atelier cu frunze, conuri,
+  semințe, aluat sărat, fire, lupă, copil și părinte, Skats ilustrat care îi ghidează. Celelalte patru
+  folosesc același sistem, cu recuzita lor.
+
+**ART PROVIZORIU.** Ilustrațiile de recuzită, familie și decor sunt desenate de cod (vectoriale), ca
+direcția să fie demonstrabilă acum. Nu sunt arta finală. Înlocuire fără modificări de cod: pui imaginea
+în `public/assets/` și o înregistrezi `ready` în `content/assets.ts` sub aceeași cheie (`loadArt` o
+preferă). Mascotele celorlalți patru gardieni folosesc deocamdată mascota principală (băiatul-detectiv).
+
+## Harta (poartă și progres)
+
+Interimar, harta este **posterul oficial al parcului** (LVM, 2577 × 1851 px, aproape A3), descărcat de pe
+atputa.lvm.lv. Diorama o folosește ca textură și o ridică în relief (lacul scobit, teritoriul parcului ca
+platou, pădurea din jur mai joasă, copaci doar în pădurea exterioară, ca harta să rămână lizibilă).
+Relieful se calculează din culorile hărții cu `scripts/make-relief.py`. Reperele celor 5 zone stau pe
+poziții măsurate pe hartă. În Magic Mode camera încadrează nucleul parcului, nu tot posterul.
+
+Markerul AR (`public/assets/markers/tervete-map.mind`) este compilat din aceeași hartă, deci
+posterul tipărit poate fi folosit pentru a testa AR **acum**. Când vine harta finală: înlocuiești
+imaginea, rulezi `scripts/make-relief.py`, recompilezi markerul (`scripts/compile-marker.cjs`) și
+re-măsori `zone.mapPosition`.
+
+## Asset-uri și drepturi
+
+| Ce | Sursă | Stare |
+|---|---|---|
+| Harta (poster) și fotografiile de backdrop | site-ul oficial LVM (atputa.lvm.lv) | **provizoriu, intern.** Drepturile aparțin LVM; de confirmat înainte de orice publicare |
+| Skats ilustrat | ilustrația mascotei din board-ul Figma, decupată din pagina albă | provizoriu; marginile decupajului pot fi retușate |
+| Recuzită, familie, pergolă, felinare, panouri | desenate în cod | provizoriu, înlocuibile |
+| Logo LVM, font Franklin Gothic | — | nu sunt incluse (licențe) |
 
 ## Performanță
 
@@ -127,10 +179,13 @@ Conținutul celor cinci zone urmează brief-ul întocmai. Ce urmează este scris
 | Presupunere | Unde |
 |---|---|
 | Formularea tuturor replicilor mascotelor și a naratorului (fără activități noi) | `guardians.ts`, `pitchScript.ts` |
-| Momentele vizuale memorabile (ornament care strălucește, inele sonore, colier, spirală de arome, amprentă) | `rewardVisual`, `three/activities.ts` |
+| Momentele vizuale și evidențierile AR (contur luminos, spirala conului, frunza ascunsă, culori, unde, amprentă) | `rewardVisual`, `three/story/compositions.ts` |
+| Suvenir doar la Skats (ornament) și Odziņa (colier), cum cere brief-ul; la celelalte nu se inventează | `three/story/compositions.ts` |
 | Culorile gardienilor, în afară de auriul brandului la Skats | `guardians.ts` |
-| Pozițiile zonelor pe hartă și forma potecii | `zone.mapPosition`, `textures.ts` |
-| Mascotele placeholder (băiat al pădurii cu coroană de frunze, câte un detaliu per simț) | `three/Mascot.ts` |
+| Pozițiile zonelor, măsurate pe posterul oficial; forma de relief și culorile copacilor | `zone.mapPosition`, `scripts/make-relief.py` |
+| Mascota principală stă în locul celorlalți patru gardieni până vin ilustrațiile lor | `content/assets.ts` (`mascot-default`) |
+| Ilustrațiile de recuzită, familie, decor și locul Arborelui (provizorii) | `three/story/art.ts`, `World.ts` |
+| Denumirea locală „Iršu dārzs” (confirmată de poster: „IRŠU DĀRZS”); de validat cu echipa dacă brief-ul sursă folosește altă formă | `guardians.ts` |
 | Tagline „Atklāj · Pēti · Sajūti", citit de pe panoul din ilustrația Figma | `content/brand.ts` |
 | Numele letone ale zonelor vin de pe atputa.lvm.lv; „Green Classroom" nu are nume leton publicat | `guardians.ts` |
 | Finala: text, durată (24 s) și faptul că arată mereu toți cei cinci gardieni | `pitchScript.ts` |
@@ -151,7 +206,7 @@ npm run build
 - Stare: tranziții, `next`/`prev` inverse, restart, determinism, fallback AR.
 - Flux integrat (jsdom, cu un `Stage` fals): Magic Mode complet până la finală, controale de
   prezentator, scurtături, mesaje AR și recuperare.
-- 3D fără WebGL: toate vizualurile rulează pe toată durata scenei, cu și fără mișcare, fără NaN.
+- 3D fără WebGL: zonele de pe hartă și scenele pe straturi rulează pe toată durata, în ecran și în pop-up AR, cu și fără mișcare, fără NaN; compozițiile sunt legate de biblioteca de artă; suvenirurile urmează brief-ul.
 - AR: adaptorul Mock și căile de cădere ale MindAR.
 
 Verificarea vizuală (capturi în Chromium cu WebGL software) este descrisă în `docs/test-checklist.md`.

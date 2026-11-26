@@ -8,9 +8,11 @@ Cele cinci zone și gardieni (din brief): **Skats** (Sight · Hornet Garden), **
 Tale Forest), **Odziņa** (Taste · Gnome Forest), **Deguntiņš** (Smell · Green Classroom–Forest Trail
 Connector), **Plaukstiņa** (Touch · Old Pine Park) și finala **Tree of Five Senses**.
 
-> Stare: tehnic complet și demonstrabil. Harta ilustrată finală și mascotele finale nu sunt incluse;
-> acum se văd placeholder-e procedurale, înlocuibile fără modificări de cod
-> (vezi `public/assets/illustrations/README.md`).
+> Stare: tehnic complet și demonstrabil. Harta este, provizoriu, posterul oficial al parcului, în relief
+> 3D; fiecare atracție este o scenă cinematică pe straturi (backdrop foto, mascotă ilustrată, recuzită,
+> familie, AR ca extensie magică). Ilustrațiile de recuzită și decor sunt provizorii și se înlocuiesc fără
+> modificări de cod (vezi `public/assets/illustrations/README.md`). Harta e doar poarta de intrare și
+> ecranul de progres.
 
 ## Rulare
 

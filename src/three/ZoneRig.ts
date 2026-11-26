@@ -16,45 +16,31 @@ import {
   type Texture,
 } from 'three';
 import type { Guardian } from '../content/guardians';
-import { buildActivity, type ActivityVisual } from './activities';
 import { Kit, disposeTree } from './kit';
 import { buildLandmark } from './landmarks';
-import { buildMascot, type MascotRig } from './Mascot';
 import { MAP_D, MAP_W } from './textures';
 import { clamp01, easeInOut, lerp, mulberry32 } from './util';
-
-export interface ActorContext {
-  t: number;
-  /** Seconds since each cue fired, or -1. */
-  enter: number;
-  activity: number;
-  moment: number;
-  speaking: boolean;
-  motion: number;
-}
 
 const DORMANT_RING = new Color('#9aa59b');
 const EMITTERS = 22;
 
 /**
  * One zone on the diorama: a landmark that is dormant (grey, unlit) until the guardian
- * has been visited, a light beacon that switches on, and the "stage set" (mascot +
- * physical-activity visual) that only exists while that guardian's scene plays.
+ * has been visited, and a light beacon that switches on. The attraction scenes themselves are
+ * cinematic story scenes (see three/story), not 3D sets.
  */
 export class ZoneRig {
   readonly group = new Group();
   readonly worldPosition: Vector3;
   private readonly theme: Color;
   private readonly kit = new Kit(true);
+  private readonly clearing: Mesh;
   private readonly beam: Mesh;
   private readonly ring: Mesh;
   private readonly pulseRing: Mesh;
   private readonly halo: Sprite;
   private readonly emitter: Points;
   private readonly emitterSeed: Float32Array;
-  private readonly actors = new Group();
-  private readonly mascot: MascotRig;
-  private readonly activity: ActivityVisual;
 
   /** 0 = dormant, 1 = awake. Eased toward `target` every frame. */
   lit = 0;
@@ -73,8 +59,8 @@ export class ZoneRig {
     this.theme = new Color(guardian.themeColor);
 
     // Clearing + landmark (tinted materials)
-    const clearing = this.kit.cyl(this.group, 0.62, 0.66, 0.02, '#a9c56a', 0, 0, 0, 24);
-    clearing.castShadow = false;
+    this.clearing = this.kit.cyl(this.group, 0.62, 0.66, 0.02, '#a9c56a', 0, 0, 0, 24);
+    this.clearing.castShadow = false;
     this.group.add(buildLandmark(guardian.assetKeys.landmark, this.kit));
 
     // Beacon
@@ -117,16 +103,6 @@ export class ZoneRig {
     this.emitter.frustumCulled = false;
     this.group.add(this.emitter);
 
-    // Stage set for the attraction scene
-    this.mascot = buildMascot(guardian, 1.05);
-    this.mascot.group.position.set(-0.42, 0, 0.5);
-    this.mascot.group.rotation.y = 0.28;
-    this.activity = buildActivity(guardian, glow);
-    this.activity.group.position.set(0.42, 0, 0.32);
-    this.actors.add(this.mascot.group, this.activity.group);
-    this.actors.visible = false;
-    this.group.add(this.actors);
-
     this.applyLit();
   }
 
@@ -143,9 +119,11 @@ export class ZoneRig {
     this.pulseAge = 0;
   }
 
-  setActive(active: boolean): void {
-    this.actors.visible = active;
-    if (!active) this.mascot.update(0, -1, false, 0);
+  /** Sits the zone on the terrain; on the real map the painted clearing is not needed. */
+  setGround(y: number, realMap: boolean): void {
+    this.worldPosition.y = y;
+    this.group.position.y = y;
+    this.clearing.visible = !realMap;
   }
 
   setEmitters(on: boolean): void {
@@ -154,7 +132,7 @@ export class ZoneRig {
 
   /** Marker anchor in world space. */
   markerPosition(out: Vector3): Vector3 {
-    return out.copy(this.worldPosition).setY(1.45);
+    return out.copy(this.worldPosition).setY(this.worldPosition.y + 1.15);
   }
 
   update(dt: number, time: number, motion: number): void {
@@ -200,11 +178,6 @@ export class ZoneRig {
       }
       pos.needsUpdate = true;
     }
-  }
-
-  updateActors(ctx: ActorContext): void {
-    this.mascot.update(ctx.t, ctx.enter, ctx.speaking, ctx.motion);
-    this.activity.update({ t: ctx.t, a: ctx.activity, m: ctx.moment, motion: ctx.motion });
   }
 
   dispose(): void {

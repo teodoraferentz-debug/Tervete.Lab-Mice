@@ -1,7 +1,7 @@
 import { ArAdapterBase, type ArRenderHost } from './ArAdapter';
 
 /** Where the compiled image target (from the printed A3 map) is expected. See docs/technical-notes.md. */
-export const DEFAULT_TARGET_SRC = '/assets/markers/tervete-map.mind';
+export const DEFAULT_TARGET_SRC = `${import.meta.env.BASE_URL}assets/markers/tervete-map.mind`;
 
 type MindArModule = typeof import('mind-ar/dist/mindar-image-three.prod.js');
 type MindArThreeInstance = InstanceType<MindArModule['MindARThree']>;

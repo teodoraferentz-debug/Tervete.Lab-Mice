@@ -11,11 +11,14 @@ import type { Guardian, GuardianId } from '../content/guardians';
 import type { SceneClock } from '../experience/SceneClock';
 import { fitView, type ViewGoal } from './cameraRig';
 import { initialQuality, QualityGovernor, stepDown, TIERS, type QualityName } from './quality';
+import { LOOK_Y, STAGE_DISTANCE } from './story/StoryScene';
 import { MAP_W } from './textures';
 import type { ScreenPoint, StageApi } from './StageApi';
 import { World } from './World';
 
 export type { ScreenPoint };
+
+const HALF_STAGE_H = 4.5;
 
 export interface StageOptions {
   reducedMotion: boolean;
@@ -99,8 +102,11 @@ export class Stage implements StageApi {
 
   showMap(visited: readonly GuardianId[], justActivated: GuardianId | null): void {
     this.clock = null;
+    // Coming back from a story scene is a cut, not a swoop through the (previously hidden) map.
+    if (this.world.mode === 'attraction') this.snapNext = true;
     this.world.showMap(visited, justActivated, !this.mapShown);
     this.mapShown = true;
+    this.applyFov();
     if (justActivated) this.opts.onActivate?.(justActivated);
     this.setView(() => this.mapView());
   }
@@ -108,16 +114,16 @@ export class Stage implements StageApi {
   playAttraction(guardian: Guardian, clock: SceneClock): void {
     this.clock = clock;
     this.world.playAttraction(guardian, clock);
-    this.setView(() => {
-      // Look slightly inward from the zone's outer side, so the forest (not the table edge) is the backdrop.
-      const yaw = Math.max(-0.35, Math.min(0.35, (this.world.zones.get(guardian.id)?.worldPosition.x ?? 0) * 0.1));
-      return fitView(this.camera, this.world.zoneBox(guardian.id), yaw, 0.5, 0.9, 0.74);
-    });
+    // The story scene is authored for a fixed camera on its axis; only parallax moves it (see tick()).
+    this.snapNext = true;
+    this.setView(() => ({ position: new Vector3(0, 0, STAGE_DISTANCE), target: new Vector3(0, 0, 0) }));
+    this.applyFov();
   }
 
   playFinale(clock: SceneClock): void {
     this.clock = clock;
     this.world.playFinale(clock);
+    this.applyFov();
     this.setView(() => fitView(this.camera, this.world.finaleBox(), 0, 0.36, 0.92, 0.8));
   }
 
@@ -243,12 +249,27 @@ export class Stage implements StageApi {
     this.opts.onQualityChange?.(name);
   }
 
+  /**
+   * Map and finale use a fixed lens. A story scene picks its lens so the central 10 units of the 16 × 9
+   * stage always fit: on a phone in portrait the composition shows its middle, on a projector the whole.
+   */
+  private applyFov(): void {
+    const aspect = this.camera.aspect;
+    if (this.world.mode === 'attraction') {
+      const halfH = Math.max(HALF_STAGE_H, 5.2 / aspect);
+      this.camera.fov = (2 * Math.atan(halfH / STAGE_DISTANCE) * 180) / Math.PI;
+    } else {
+      this.camera.fov = aspect < 0.85 ? 46 : 38;
+    }
+    this.camera.updateProjectionMatrix();
+    this.world.setStoryView(this.camera.fov, aspect);
+  }
+
   private resize(): void {
     const { clientWidth: w, clientHeight: h } = this.container;
     if (w === 0 || h === 0) return;
     this.camera.aspect = w / h;
-    this.camera.fov = w / h < 0.85 ? 46 : 38;
-    this.camera.updateProjectionMatrix();
+    this.applyFov();
     this.renderer?.setSize(w, h, false);
     if (this.renderer) {
       this.renderer.domElement.style.width = '100%';
@@ -294,9 +315,17 @@ export class Stage implements StageApi {
     this.time += dt;
 
     this.clock?.tick(Math.min(0.5, elapsed));
-    this.world.update(dt, this.time, this.motion);
+    this.world.update(dt, this.time, this.motion, this.host?.camera ?? this.camera);
 
-    if (!this.host && this.goal) {
+    if (!this.host && this.world.mode === 'attraction') {
+      // Cinematic camera: a slow drift for parallax and a gentle push-in across the scene.
+      const dur = this.clock?.duration ?? 30;
+      const progress = this.clock ? this.clock.time / dur : 0;
+      const m = this.motion;
+      this.camera.position.set(Math.sin(this.time * 0.17) * 0.5 * m, LOOK_Y + Math.sin(this.time * 0.13) * 0.14 * m, STAGE_DISTANCE - 1.1 * progress * m);
+      this.camera.lookAt(0, LOOK_Y, 0);
+      this.pos.copy(this.camera.position);
+    } else if (!this.host && this.goal) {
       const k = this.reducedMotion ? 1 : 1 - Math.exp(-dt * 2.6);
       this.pos.lerp(this.goal.position, k);
       this.look.lerp(this.goal.target, k);

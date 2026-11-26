@@ -4,7 +4,9 @@ import { GUARDIANS } from '../content/guardians';
 import { mulberry32 } from './util';
 
 export const MAP_W = 8;
-export const MAP_D = MAP_W / Math.SQRT2; // A3 landscape (420 × 297 mm)
+/** Aspect of the park map poster (2577 × 1851 px, close to A3 landscape). The final map should keep this ratio. */
+export const MAP_ASPECT = 2577 / 1851;
+export const MAP_D = MAP_W / MAP_ASPECT;
 
 function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement('canvas');
@@ -54,7 +56,7 @@ export function beamTexture(): CanvasTexture {
  * Replaced by the real illustration when `map-illustration` is marked ready in content/assets.ts.
  */
 export function placeholderMapTexture(width = 1536): CanvasTexture {
-  const height = Math.round(width / Math.SQRT2);
+  const height = Math.round(width / MAP_ASPECT);
   const [c, ctx] = canvas(width, height);
   const rnd = mulberry32(7);
   const W = width;

@@ -39,6 +39,7 @@ export class SensesTree {
   private readonly trunk: Group;
   private readonly clusters: Array<{ mesh: Mesh; mat: MeshStandardMaterial; halo: Sprite; theme: Color; base: Vector3 }> = [];
   private readonly trails: Array<{ geo: TubeGeometry; mesh: Mesh; count: number }> = [];
+  private readonly zones: ReadonlyMap<string, ZoneRig>;
   private readonly mascots: Array<{ rig: MascotRig; ring: Mesh }> = [];
   private readonly branches: Mesh[] = [];
   private readonly crown: Mesh;
@@ -90,19 +91,8 @@ export class SensesTree {
     crown.position.set(0, 2.5, 0);
     this.group.add(crown);
 
-    // Light trails from each zone beacon into its cluster
-    GUARDIANS.forEach((g, i) => {
-      const zone = zones.get(g.id);
-      if (!zone) return;
-      const from = zone.worldPosition.clone().setY(0.9);
-      const to = this.clusters[i]!.base.clone();
-      const mid = from.clone().lerp(to, 0.5).setY(2.6);
-      const geo = new TubeGeometry(new QuadraticBezierCurve3(from, mid, to), 48, 0.018, 5);
-      const mesh = new Mesh(geo, new MeshStandardMaterial({ color: g.themeColor, emissive: g.themeColor, emissiveIntensity: 1.2, transparent: true, opacity: 0.9 }));
-      mesh.frustumCulled = false;
-      this.group.add(mesh);
-      this.trails.push({ geo, mesh, count: geo.index?.count ?? 0 });
-    });
+    // Light trails from each zone beacon into its cluster (built by layout())
+    this.zones = zones;
 
     // The five guardians gather in front of the tree
     GUARDIANS.forEach((g, i) => {
@@ -138,6 +128,33 @@ export class SensesTree {
     this.sparks = new Points(geo, new PointsMaterial({ size: 0.09, map: glow, vertexColors: true, transparent: true, opacity: 0, blending: AdditiveBlending, depthWrite: false }));
     this.sparks.frustumCulled = false;
     this.group.add(this.sparks);
+  }
+
+  /**
+   * Plants the tree at `center` (world space) and rebuilds the light trails from the zones, which sit
+   * at their own world positions. Called again when the terrain (and so the zones' height) changes.
+   */
+  layout(center: Vector3): void {
+    this.group.position.copy(center);
+    for (const tr of this.trails) {
+      this.group.remove(tr.mesh);
+      tr.geo.dispose();
+      (tr.mesh.material as MeshStandardMaterial).dispose();
+    }
+    this.trails.length = 0;
+    GUARDIANS.forEach((g, i) => {
+      const zone = this.zones.get(g.id);
+      const cluster = this.clusters[i];
+      if (!zone || !cluster) return;
+      const from = zone.worldPosition.clone().sub(center).add(new Vector3(0, 0.9, 0));
+      const to = cluster.base.clone();
+      const mid = from.clone().lerp(to, 0.5).setY(Math.max(from.y, to.y) + 0.9);
+      const geo = new TubeGeometry(new QuadraticBezierCurve3(from, mid, to), 48, 0.018, 5);
+      const mesh = new Mesh(geo, new MeshStandardMaterial({ color: g.themeColor, emissive: g.themeColor, emissiveIntensity: 1.2, transparent: true, opacity: 0.9 }));
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      this.trails.push({ geo, mesh, count: geo.index?.count ?? 0 });
+    });
   }
 
   setVisible(v: boolean): void {

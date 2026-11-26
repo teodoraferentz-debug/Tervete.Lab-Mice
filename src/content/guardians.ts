@@ -50,7 +50,9 @@ export interface ZoneInfo {
   nameLv?: string;
   /**
    * Normalised position on the illustrated map: u = 0 (left) → 1 (right), v = 0 (top) → 1 (bottom).
-   * ASSUMPTION: placeholder positions. Re-measure against the final A3 map illustration.
+   * Measured on the park's official map poster (interim base map): Iršu dārzs by the entrance, Rūķīšu mežs
+   * top-left, Pasaku mežs and Veco priežu parks east of the centre, the Green Classroom to the north.
+   * Re-measure if the final illustrated map has a different layout.
    */
   mapPosition: { u: number; v: number };
 }
@@ -95,7 +97,7 @@ export const GUARDIANS: readonly Guardian[] = [
     name: 'Skats',
     sense: 'sight',
     senseLabel: 'Sight',
-    zone: { name: 'Hornet Garden', nameLv: 'Iršu dārzs', mapPosition: { u: 0.18, v: 0.6 } },
+    zone: { name: 'Hornet Garden', nameLv: 'Iršu dārzs', mapPosition: { u: 0.47, v: 0.62 } },
     themeColor: '#e2aa18', // brand gold
     learningGoal: 'Shapes, colours, patterns, observation',
     physicalExperience:
@@ -141,7 +143,7 @@ export const GUARDIANS: readonly Guardian[] = [
     name: 'Austiņa',
     sense: 'hearing',
     senseLabel: 'Hearing',
-    zone: { name: 'Fairy Tale Forest', nameLv: 'Pasaku mežs', mapPosition: { u: 0.34, v: 0.26 } },
+    zone: { name: 'Fairy Tale Forest', nameLv: 'Pasaku mežs', mapPosition: { u: 0.52, v: 0.43 } },
     themeColor: '#4fa3b5', // ASSUMPTION: cool teal to separate hearing from the brand greens
     learningGoal: 'Sound sources and the layered sounds of the forest',
     physicalExperience:
@@ -177,7 +179,7 @@ export const GUARDIANS: readonly Guardian[] = [
     name: 'Odziņa',
     sense: 'taste',
     senseLabel: 'Taste',
-    zone: { name: 'Gnome Forest', nameLv: 'Rūķīšu mežs', mapPosition: { u: 0.66, v: 0.24 } },
+    zone: { name: 'Gnome Forest', nameLv: 'Rūķīšu mežs', mapPosition: { u: 0.32, v: 0.33 } },
     themeColor: '#e8743b', // ASSUMPTION: warm orange (dried orange slices)
     learningGoal: 'Tastes and ingredients',
     physicalExperience:
@@ -235,7 +237,7 @@ export const GUARDIANS: readonly Guardian[] = [
     senseLabel: 'Smell',
     zone: {
       name: 'Green Classroom–Forest Trail Connector',
-      mapPosition: { u: 0.64, v: 0.74 },
+      mapPosition: { u: 0.5, v: 0.22 },
     },
     themeColor: '#a67bc9', // ASSUMPTION: lavender, reads as "aroma" and stays distinct from the greens
     learningGoal: 'Natural smells and careful exploration',
@@ -281,7 +283,7 @@ export const GUARDIANS: readonly Guardian[] = [
     name: 'Plaukstiņa',
     sense: 'touch',
     senseLabel: 'Touch',
-    zone: { name: 'Old Pine Park', nameLv: 'Veco priežu parks', mapPosition: { u: 0.86, v: 0.48 } },
+    zone: { name: 'Old Pine Park', nameLv: 'Veco priežu parks', mapPosition: { u: 0.64, v: 0.57 } },
     themeColor: '#c98f5a', // ASSUMPTION: warm wood / bark
     learningGoal: 'Textures and natural materials',
     physicalExperience:
