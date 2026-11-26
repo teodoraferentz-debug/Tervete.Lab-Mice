@@ -53,6 +53,21 @@ Imaginea se poate oglindi pe un ecran cu funcția *Cast* din Quest, pentru publi
 Recuzita fizică nu se vede în VR (headsetul acoperă ochii; Quest 1 nu are cameră în browser), deci mesajul
 „Presenter" se citește în headset, iar recuzita se ridică înainte sau după.
 
+## Publicare pe GitHub Pages (HTTPS, pentru Quest)
+
+GitHub Pages servește prin HTTPS, deci VR (WebXR) și camera merg. Workflow-ul este pregătit în
+`.github/workflows/pages.yml` și **nu publică nimic singur**.
+
+1. GitHub, repo-ul, **Settings → Pages → Source: GitHub Actions**.
+2. **Actions → Deploy to GitHub Pages → Run workflow**.
+3. Adresa apare la sfârșitul rulării, de forma `https://<utilizator>.github.io/Tervete.Lab-Mice/`.
+   Deschide-o în browserul Quest.
+
+**Atenție la drepturi:** repo-ul este public, iar harta și fotografiile provizorii vin de pe site-ul LVM
+(vezi `public/assets/illustrations/README.md`). Un site Pages este public pentru oricine are adresa. Înainte
+să-l publici sau să-l dai mai departe, confirmă cu LVM, sau scoate acele fișiere. Pagina privată de la QR
+rămâne varianta sigură pentru uz intern.
+
 ## Moduri
 
 - **Magic Mode**: funcționează complet fără cameră și fără marker. Este modul sigur pentru pitch.

@@ -36,6 +36,8 @@ const optimizerShim = {
 };
 
 export default defineConfig({
+  // Set BASE_PATH=/repo-name/ when the site is served from a sub-path (GitHub Pages project sites).
+  base: process.env.BASE_PATH ?? '/',
   // HTTPS=1 npm run dev:https → self-signed certificate, needed for the phone camera over the local network.
   plugins: [mindArThreeShim(), react(), ...(process.env.HTTPS ? [basicSsl()] : [])],
   optimizeDeps: {
