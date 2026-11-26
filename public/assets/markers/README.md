@@ -1,8 +1,9 @@
 # AR marker (image target)
 
-`Start AR` looks for **`tervete-map.mind`** in this folder. It is not committed, because it must be
-compiled from the *final printed A3 map*. Until it exists, `Start AR` says so in the console and the
-app continues in Magic Mode (nothing breaks).
+`Start AR` looks for **`tervete-map.mind`** in this folder. The committed one is compiled from the
+**interim map** (the park's official poster, `../illustrations/tervete-map.webp`), so that poster can be
+printed and tracked today. Recompile it when the final map arrives. If the file is missing, `Start AR`
+says so in the console and the app continues in Magic Mode (nothing breaks).
 
 ## Compile it
 
