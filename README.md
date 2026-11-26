@@ -65,10 +65,10 @@ GitHub Pages servește prin HTTPS, deci VR (WebXR) și camera merg. Workflow-ul 
 3. Adresa apare la sfârșitul rulării, de forma `https://<utilizator>.github.io/Tervete.Lab-Mice/`.
    Deschide-o în browserul Quest.
 
-**Atenție la drepturi:** repo-ul este public, iar harta și fotografiile provizorii vin de pe site-ul LVM
-(vezi `public/assets/illustrations/README.md`). Un site Pages este public pentru oricine are adresa. Înainte
-să-l publici sau să-l dai mai departe, confirmă cu LVM, sau scoate acele fișiere. Pagina privată de la QR
-rămâne varianta sigură pentru uz intern.
+**Drepturi:** harta și fotografiile provizorii vin de pe site-ul LVM (vezi
+`public/assets/illustrations/README.md`). Echipa a confirmat că are acordul LVM pentru folosirea lor, așa
+că site-ul poate fi public. Păstrează dovada scrisă a acordului. Când vin harta și fotografiile finale,
+înlocuiește fișierele provizorii.
 
 ## Moduri
 

@@ -166,7 +166,7 @@ re-măsori `zone.mapPosition`.
 
 | Ce | Sursă | Stare |
 |---|---|---|
-| Harta (poster) și fotografiile de backdrop | site-ul oficial LVM (atputa.lvm.lv) | **provizoriu, intern.** Drepturile aparțin LVM; de confirmat înainte de orice publicare |
+| Harta (poster) și fotografiile de backdrop | site-ul oficial LVM (atputa.lvm.lv) | **provizoriu.** Drepturile aparțin LVM; echipa a confirmat că are acordul lor (de păstrat dovada scrisă), deci pot fi publice |
 | Skats ilustrat | ilustrația mascotei din board-ul Figma, decupată din pagina albă | provizoriu; marginile decupajului pot fi retușate |
 | Recuzită, familie, pergolă, felinare, panouri | desenate în cod | provizoriu, înlocuibile |
 | Logo LVM, font Franklin Gothic | — | nu sunt incluse (licențe) |

@@ -4,9 +4,9 @@ What is here, and where it comes from:
 
 | File | What | Source / status |
 |---|---|---|
-| `tervete-map.webp` | ground texture of the map | LVM park map poster (atputa.lvm.lv). **Interim, internal use.** Rights belong to LVM. |
+| `tervete-map.webp` | ground texture of the map | LVM park map poster (atputa.lvm.lv). **Interim.** Rights belong to LVM; the team confirmed it has LVM's agreement to use them (keep the written proof). |
 | `tervete-map-relief.png` | 3D relief (R height, G trees, B water) | generated from the map by `scripts/make-relief.py` |
-| `backdrops/*.webp` | photographic scene backdrops | official park photos (atputa.lvm.lv), defocused. **Interim.** |
+| `backdrops/*.webp` | photographic scene backdrops | official park photos (atputa.lvm.lv), defocused. **Interim**, used with LVM's agreement (as above). |
 | `mascots/skats.webp` | Skats, the detective illustration | Figma board, cut out of its white page. Also stands in for the other guardians (`mascot-default`). |
 
 To use final art, put the file here and set `status: 'ready'` on the matching key in
